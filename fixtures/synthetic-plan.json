@@ -1,0 +1,10 @@
+{
+  "date": "2026-09-22",
+  "availableMinutes": 60,
+  "remainingStudyMinutes": 100,
+  "nextTwoDaysReviewMinutes": 40,
+  "tasks": [
+    { "id": "unit1", "title": "합성 단원 연속 학습", "kind": "new", "minutes": 60, "splittable": true },
+    { "id": "review1", "title": "합성 개념 확인·교정", "kind": "review", "minutes": 120, "splittable": true, "dueDate": "2026-09-21" }
+  ]
+}
