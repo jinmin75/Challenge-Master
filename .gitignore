@@ -1,0 +1,26 @@
+# Local runtime and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*
+tokens*
+node_modules/
+.venv/
+__pycache__/
+.DS_Store
+Thumbs.db
+.omx/
+# Learner-owned materials must not enter this public repository
+private/
+raw/
+ingest/
+student-data/
+personal-wiki/
+logs/
+*.pdf
+*.docx
+*.xlsx
+*.zip
+# Reviewed synthetic fixtures can be allowlisted explicitly later.
