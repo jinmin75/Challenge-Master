@@ -4,6 +4,12 @@ const elements = {
   sourceLabel: document.querySelector('#sourceLabel'),
   errorMessage: document.querySelector('#errorMessage'),
   startButton: document.querySelector('#startButton'),
+  quitButton: document.querySelector('#quitButton'),
+  setupPanel: document.querySelector('#setupPanel'),
+  setupForm: document.querySelector('#setupForm'),
+  setupStatus: document.querySelector('#setupStatus'),
+  extractionPanel: document.querySelector('#extractionPanel'),
+  extractionPages: document.querySelector('#extractionPages'),
   progressForm: document.querySelector('#progressForm'),
   shortenForm: document.querySelector('#shortenForm'),
   restButton: document.querySelector('#restButton'),
@@ -57,7 +63,7 @@ function clearError() {
 async function run(action) {
   if (busy) return;
   busy = true;
-  const controls = [...document.querySelectorAll('button, input, select')];
+  const controls = [...document.querySelectorAll('button, input, select, textarea')];
   const disabledBefore = controls.map(control => control.disabled);
   controls.forEach(control => { control.disabled = true; });
   let status;
@@ -86,9 +92,11 @@ function render(status) {
   const plan = status.currentPlan;
   elements.recommendation.textContent = status.recommendedAction.label;
   elements.contract.textContent = status.progressContract;
-  elements.sourceLabel.textContent = status.planSource === 'synthetic_demo'
-    ? '합성 데모 입력입니다. 실제 과업은 로컬 설정 파일로 실행해 주세요.'
-    : `로컬 입력: ${status.planSource}`;
+  elements.sourceLabel.textContent = sourceText(status);
+  elements.setupPanel.classList.toggle('configured', status.setup?.configured === true);
+  elements.setupStatus.textContent = status.setup?.message
+    ?? '새 자료를 등록하면 현재 계획 기록은 별도 파일로 보존하고, 새 계획은 빈 기록에서 시작합니다.';
+  renderExtraction(status.setup);
   elements.planVersion.textContent = plan?.planVersion ?? '-';
   elements.startButton.textContent = plan ? '남은 과업 다시 배정' : '오늘 시작';
   elements.assignedMinutes.textContent = plan ? `${plan.assignedMinutes}분` : '-';
@@ -109,6 +117,24 @@ function render(status) {
   }));
 
   syncMinutesLimit();
+}
+
+function sourceText(status) {
+  if (status.setup?.configured) return `로컬 PDF: ${status.setup.source.originalName}`;
+  if (status.planSource && status.planSource !== 'synthetic_demo') return `로컬 입력: ${status.planSource}`;
+  return '합성 데모 입력입니다. 먼저 PDF와 공부 범위를 등록해 주세요.';
+}
+
+function renderExtraction(setup) {
+  const pages = setup?.source?.pages ?? [];
+  elements.extractionPanel.hidden = pages.length === 0;
+  elements.extractionPages.replaceChildren(...pages.map(page => {
+    const li = document.createElement('li');
+    const statusLabel = page.status === 'failed' ? '추출 실패' : '추출 초안';
+    li.textContent = `${page.pdfPageIndex}쪽 · ${statusLabel} · 원본 대조 필요`;
+    li.className = page.status;
+    return li;
+  }));
 }
 
 function syncMinutesLimit() {
@@ -146,7 +172,28 @@ async function refresh() {
 elements.startButton.addEventListener('click', () => {
   run(() => api('/api/start', { date: localDateIso() }));
 });
+elements.quitButton.addEventListener('click', () => {
+  run(async () => {
+    const data = await api('/api/quit', {});
+    elements.recommendation.textContent = data.message;
+    elements.contract.textContent = '창을 닫아 주세요.';
+    return null;
+  });
+});
 elements.taskSelect.addEventListener('change', syncMinutesLimit);
+
+elements.setupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  run(async () => {
+    const response = await fetch('/api/setup', {
+      method: 'POST',
+      body: new FormData(elements.setupForm),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? '설정을 저장하지 못했습니다.');
+    return data;
+  });
+});
 
 elements.progressForm.addEventListener('submit', async (event) => {
   event.preventDefault();

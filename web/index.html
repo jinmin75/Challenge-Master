@@ -15,9 +15,62 @@
         <p id="contract" class="muted">명시적으로 확인한 학습 시간만 다음 계획에 반영합니다.</p>
         <p id="sourceLabel" class="source">합성 데모 입력입니다.</p>
       </div>
-      <button id="startButton" type="button">오늘 시작</button>
+      <div class="primary-actions">
+        <button id="startButton" type="button">오늘 시작</button>
+        <button id="quitButton" type="button" class="secondary">앱 종료</button>
+      </div>
     </section>
     <p id="errorMessage" class="error" role="alert" hidden></p>
+
+    <section id="setupPanel" class="panel setup">
+      <div>
+        <p class="eyebrow">처음 설정</p>
+        <h2>내 PDF로 공부 계획 만들기</h2>
+        <p id="setupStatus" class="muted">새 자료를 등록하면 현재 계획 기록은 별도 파일로 보존하고, 새 계획은 빈 기록에서 시작합니다.</p>
+      </div>
+      <form id="setupForm">
+        <label>
+          학습 PDF
+          <input id="pdfInput" name="pdf" type="file" accept="application/pdf,.pdf" required>
+        </label>
+        <label>
+          자료 제목
+          <input id="titleInput" name="title" type="text" maxlength="120" value="내 학습 자료">
+        </label>
+        <label>
+          공부 범위
+          <textarea id="tasksInput" name="tasks" rows="5" required>1회독 핵심 범위 | 40 | 새 내용
+복습 문제 확인 | 20 | 복습</textarea>
+          <span class="field-help">한 줄에 ‘공부할 일 | 예상 시간(분) | 새 내용 또는 복습’ 형식으로 적어 주세요.</span>
+        </label>
+        <div class="time-grid">
+          <label>
+            하루 공부 시간
+            <input id="dailyMinutesInput" name="dailyMinutes" type="number" min="1" step="1" value="40" required>
+          </label>
+          <label>
+            이번 주 공부 시간
+            <input id="weeklyMinutesInput" name="weeklyMinutes" type="number" min="1" step="1" value="200" required>
+          </label>
+        </div>
+        <div class="time-grid">
+          <label>
+            시작 페이지
+            <input id="pageStartInput" name="pageStart" type="number" min="1" step="1" value="1" required>
+          </label>
+          <label>
+            끝 페이지
+            <input id="pageEndInput" name="pageEnd" type="number" min="1" step="1" value="1" required>
+          </label>
+        </div>
+        <button type="submit">이 설정으로 시작</button>
+      </form>
+      <div id="extractionPanel" class="extraction" hidden>
+        <h3>PDF 추출 검토</h3>
+        <p class="muted">자동 추출 초안입니다. 원본 대조 전에는 학습 완료 근거로 쓰지 않습니다.</p>
+        <ol id="extractionPages"></ol>
+      </div>
+    </section>
 
     <section class="grid">
       <form id="progressForm" class="panel">

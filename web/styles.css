@@ -93,6 +93,12 @@ label {
   font-weight: 600;
 }
 
+.field-help {
+  color: #68717f;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 input,
 select,
 button {
@@ -125,6 +131,66 @@ button:hover {
 button:disabled {
   background: #89908b;
   cursor: not-allowed;
+}
+
+.primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+button.secondary {
+  color: #28413e;
+  background: #dbe9e5;
+}
+
+button.secondary:hover {
+  background: #c8ddd8;
+}
+
+.setup {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.setup.configured {
+  border-color: #8fb8a7;
+  background: #fbfefc;
+}
+
+textarea {
+  width: 100%;
+  border: 1px solid #bdc6b0;
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+.time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.extraction {
+  border-top: 1px solid #ecefe5;
+  padding-top: 12px;
+}
+
+.extraction h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.extraction li.needs_review {
+  color: #8a4d00;
+}
+
+.extraction li.failed {
+  color: #842a2a;
 }
 
 .actions {
@@ -191,7 +257,12 @@ ol {
   }
 
   .primary,
-  .grid {
+  .grid,
+  .time-grid {
     grid-template-columns: 1fr;
+  }
+
+  .primary-actions {
+    justify-content: stretch;
   }
 }

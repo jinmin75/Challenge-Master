@@ -8,6 +8,10 @@ credentials*
 tokens*
 node_modules/
 .venv/
+build/
+dist/
+.cache/
+*.exe
 __pycache__/
 .DS_Store
 Thumbs.db

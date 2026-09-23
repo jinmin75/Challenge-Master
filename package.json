@@ -1,12 +1,13 @@
 {
   "name": "challenge-master",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.mjs",
-    "demo": "node src/cli.mjs demo"
+    "demo": "node src/cli.mjs demo",
+    "build:installer": "node scripts/build-installer.mjs"
   }
 }
