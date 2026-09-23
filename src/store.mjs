@@ -41,7 +41,8 @@ export function appendToStore(file, event) {
   let tempCreated = false;
   try {
     const before = readStore(path);
-    const after = applyEvent(before, event);
+    const nextEvent = typeof event === 'function' ? event(structuredClone(before)) : event;
+    const after = applyEvent(before, nextEvent);
     if (after.events.length === before.events.length) return after;
     const data = JSON.stringify({ schemaVersion: 1, events: after.events }, null, 2) + '\n';
     if (Buffer.byteLength(data) > maxBytes) throw new Error('Store exceeds 5 MiB; original data preserved');

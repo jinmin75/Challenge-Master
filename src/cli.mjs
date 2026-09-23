@@ -2,12 +2,14 @@ import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { planDay } from './scheduler.mjs';
+import { planFromProgress } from './replan.mjs';
 import { createManifest, applyPageResult, summarizeManifest, renderFaithfulMarkdown } from './ingest.mjs';
 import { readStore, appendToStore } from './store.mjs';
 
 const usage = `Challenge Master — 개발용 로컬 코어 (학생용 화면·LLM·PDF 변환기 미연결)
   node src/cli.mjs demo
   node src/cli.mjs plan <input.json> [--store private/study.json]
+  node src/cli.mjs replan <input.json> --store private/study.json
   node src/cli.mjs record <event.json> --store private/study.json
   node src/cli.mjs status --store private/study.json
 기록은 평문 로컬 파일입니다. 공유 폴더·공개 저장소에 보관하지 마세요.`;
@@ -45,14 +47,29 @@ try {
     if (!args[1] || args[1].startsWith('--')) throw new Error(usage);
     const store = storeArg(args, 2, false);
     const input = readJson(args[1]);
-    const planVersion = store ? (readStore(store).currentPlan?.planVersion ?? 0) + 1 : 1;
-    const plan = planDay({ ...input, planVersion });
-    if (store) appendToStore(store, { id: randomUUID(), type: 'plan_created', at: new Date().toISOString(), plan });
+    if (store && input.completedTaskIds !== undefined) {
+      throw new Error('저장 계획에는 completedTaskIds를 넣을 수 없습니다. 완료 기록은 별도 이벤트로 남기세요.');
+    }
+    const state = store ? appendToStore(store, before => {
+      if (before.currentPlan) throw new Error('다음 계획은 replan으로 생성하세요.');
+      return { id: randomUUID(), type: 'plan_created', at: new Date().toISOString(),
+        plan: planDay({ ...input, planVersion: (before.currentPlan?.planVersion ?? 0) + 1 }) };
+    }) : null;
+    const plan = state?.currentPlan ?? planDay({ ...input, planVersion: 1 });
     output({ plan, saved: Boolean(store) });
+  } else if (command === 'replan') {
+    if (!args[1] || args[1].startsWith('--')) throw new Error(usage);
+    const store = storeArg(args, 2, true);
+    const input = readJson(args[1]);
+    const state = appendToStore(store, before => ({ id: randomUUID(), type: 'plan_created',
+      at: new Date().toISOString(), plan: planFromProgress(input, before) }));
+    output({ plan: state.currentPlan, saved: true });
   } else if (command === 'record') {
     if (!args[1] || args[1].startsWith('--')) throw new Error(usage);
     const store = storeArg(args, 2, true);
-    const state = appendToStore(store, readJson(args[1]));
+    const event = readJson(args[1]);
+    if (event.type === 'plan_created') throw new Error('계획은 plan 또는 replan 명령으로 만드세요.');
+    const state = appendToStore(store, event);
     output({ saved: true, eventCount: state.events.length, currentPlanVersion: state.currentPlan?.planVersion ?? null });
   } else if (command === 'status') {
     output(readStore(storeArg(args, 1, true)));

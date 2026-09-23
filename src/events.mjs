@@ -3,6 +3,7 @@ const assistanceTypes = new Set(['none', 'hint', 'solution', 'unknown']);
 const eventFields = {
   plan_created: ['plan'],
   attempt_recorded: ['taskId', 'planVersion', 'evidenceType', 'assistanceExposure', 'sourceVersion', 'response'],
+  task_progress_recorded: ['taskId', 'planVersion', 'completedMinutes', 'learnerConfirmed'],
   feedback_received: ['taskId', 'planVersion', 'text', 'sourceStatus'],
   notification_observed: ['notificationId', 'deliveryStatus', 'openedAt'],
   noncompletion_confirmed: ['taskId', 'planVersion', 'confirmed'],
@@ -10,7 +11,7 @@ const eventFields = {
 
 export function emptyState() {
   return { schemaVersion: 1, events: [], currentPlan: null, plans: [], attempts: [],
-    feedback: [], notifications: [], noncompletion: [] };
+    progress: [], feedback: [], notifications: [], noncompletion: [] };
 }
 
 function text(value, field, maximum = 1000) {
@@ -56,6 +57,15 @@ function validatePlan(plan, state) {
     total += item.minutes;
   }
   if (total !== plan.assignedMinutes) throw new Error('Plan assigned time mismatch');
+  const deferredSeen = new Set();
+  for (const item of plan.deferred) {
+    text(item.taskId, 'deferred taskId');
+    text(item.reason, 'deferred reason');
+    if (!Number.isSafeInteger(item.minutes) || item.minutes <= 0 || deferredSeen.has(item.taskId)) {
+      throw new Error('Invalid plan deferred entry');
+    }
+    deferredSeen.add(item.taskId);
+  }
 }
 
 export function applyEvent(state, event) {
@@ -71,7 +81,7 @@ export function applyEvent(state, event) {
     return structuredClone(state);
   }
   if (event.type === 'plan_created') validatePlan(event.plan, state);
-  if (['attempt_recorded', 'feedback_received', 'noncompletion_confirmed'].includes(event.type)) {
+  if (['attempt_recorded', 'task_progress_recorded', 'feedback_received', 'noncompletion_confirmed'].includes(event.type)) {
     text(event.taskId, 'taskId');
     const plan = state.plans.find(item => item.planVersion === event.planVersion);
     if (!plan?.allocations.some(item => item.taskId === event.taskId)) throw new Error('Unknown task or plan version');
@@ -81,6 +91,22 @@ export function applyEvent(state, event) {
     if (!assistanceTypes.has(event.assistanceExposure)) throw new Error('Invalid assistance exposure');
     if (event.sourceVersion !== null) text(event.sourceVersion, 'source version');
     if (typeof event.response !== 'string' || event.response.length > 50000) throw new Error('Invalid response');
+  }
+  if (event.type === 'task_progress_recorded') {
+    if (event.planVersion !== state.currentPlan?.planVersion) {
+      throw new Error('Stale plan progress cannot change the current backlog');
+    }
+    if (!Number.isSafeInteger(event.completedMinutes) || event.completedMinutes <= 0) {
+      throw new Error('Invalid completedMinutes');
+    }
+    if (event.learnerConfirmed !== true) throw new Error('Explicit learner confirmation required');
+    const assigned = state.currentPlan.allocations.find(item => item.taskId === event.taskId).minutes;
+    const alreadyCompleted = state.progress
+      .filter(item => item.planVersion === event.planVersion && item.taskId === event.taskId)
+      .reduce((sum, item) => sum + item.completedMinutes, 0);
+    if (alreadyCompleted + event.completedMinutes > assigned) {
+      throw new Error('Confirmed progress exceeds plan allocation');
+    }
   }
   if (event.type === 'feedback_received') {
     text(event.text, 'feedback text', 50000);
@@ -102,6 +128,7 @@ export function applyEvent(state, event) {
       next.feedback = next.feedback.map(item => ({ ...item, eligibleForCurrentPlan: false, reason: 'stale_plan' }));
       break;
     case 'attempt_recorded': next.attempts.push(saved); break;
+    case 'task_progress_recorded': next.progress.push(saved); break;
     case 'feedback_received': {
       const reason = saved.planVersion !== next.currentPlan.planVersion ? 'stale_plan'
         : saved.sourceStatus !== 'ready' ? 'unverified_source' : 'current_source_claim';

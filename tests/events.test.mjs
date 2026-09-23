@@ -25,6 +25,27 @@ test('duplicate event is idempotent; conflicting id fails', () => {
   assert.equal('mastery' in first, false);
 });
 
+test('confirmed task progress is bounded by the current plan allocation', () => {
+  const progress = { id: 'w1', type: 'task_progress_recorded', at, taskId: 'unit1',
+    planVersion: 1, completedMinutes: 8, learnerConfirmed: true };
+  const first = applyEvent(planned(), progress);
+  assert.deepEqual(applyEvent(first, progress), first);
+  assert.equal(first.progress.length, 1);
+  const second = applyEvent(first, { ...progress, id: 'w2', completedMinutes: 12 });
+  assert.equal(second.progress.length, 2);
+  assert.throws(() => applyEvent(second, { ...progress, id: 'w3', completedMinutes: 1 }), /allocation/i);
+  assert.throws(() => applyEvent(first, { ...progress, id: 'w4', learnerConfirmed: false }), /confirmation/i);
+  assert.throws(() => applyEvent(first, { ...progress, id: 'w5', completedMinutes: 0 }), /completedMinutes/i);
+  assert.throws(() => applyEvent(first, { ...progress, id: 'w6', taskId: 'missing' }), /task/i);
+});
+
+test('late progress for an old plan cannot change the current backlog', () => {
+  const nextPlan = applyEvent(planned(), { id: 'p2', type: 'plan_created', at, plan: plan(2) });
+  assert.throws(() => applyEvent(nextPlan, { id: 'w1', type: 'task_progress_recorded', at,
+    taskId: 'unit1', planVersion: 1, completedMinutes: 5, learnerConfirmed: true }), /stale/i);
+  assert.deepEqual(nextPlan.progress, []);
+});
+
 test('K10 notification unknown does not create confirmed noncompletion', () => {
   const next = applyEvent(planned(), { id: 'n1', type: 'notification_observed', at,
     notificationId: 'notice1', deliveryStatus: 'unknown', openedAt: null });
@@ -95,4 +116,7 @@ test('invalid calendar timestamps and plans exceeding policy budget are rejected
   const excess = { ...plan(), allocatableMinutes: 60, slackMinutes: 0 };
   assert.throws(() => applyEvent(emptyState(), { id: 'p', type: 'plan_created', at, plan: excess }), /budget/i);
   assert.throws(() => applyEvent(planned(), { ...attempt, token: 'do-not-store' }), /field/i);
+  const malformedDeferred = { ...plan(), deferred: [{ taskId: 'unit2', minutes: -5, reason: 'capacity' }] };
+  assert.throws(() => applyEvent(emptyState(), { id: 'p', type: 'plan_created', at,
+    plan: malformedDeferred }), /deferred/i);
 });
