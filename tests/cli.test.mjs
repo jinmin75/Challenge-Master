@@ -105,3 +105,31 @@ test('stored first plan cannot hide completed prerequisites without an event', (
     assert.equal(JSON.parse(run('status', '--store', store).stdout).plans.length, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('week command recomputes a tentative forecast from stored explicit progress', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'challenge-week-cli-'));
+  const store = join(dir, 'study.json');
+  const input = join(dir, 'week.json');
+  const eventFile = join(dir, 'progress.json');
+  try {
+    assert.equal(run('plan', 'fixtures/synthetic-plan.json', '--store', store).status, 0);
+    writeFileSync(eventFile, JSON.stringify({ id: 'weekly-progress', type: 'task_progress_recorded',
+      at: '2026-09-23T01:00:00.000Z', taskId: 'unit1', planVersion: 1,
+      completedMinutes: 8, learnerConfirmed: true }));
+    assert.equal(run('record', eventFile, '--store', store).status, 0);
+    const tasks = JSON.parse(readFileSync(join(root, 'fixtures/synthetic-plan.json'), 'utf8')).tasks;
+    writeFileSync(input, JSON.stringify({ days: [
+      { date: '2026-09-23', availableMinutes: 60 },
+      { date: '2026-09-24', availableMinutes: 60 }
+    ], tasks }));
+    const before = readFileSync(store, 'utf8');
+    const result = run('week', input, '--store', store);
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.saved, false);
+    assert.deepEqual(output.forecast.observedProgress,
+      [{ taskId: 'unit1', minutes: 8, status: 'observed' }]);
+    assert.equal(output.forecast.totalAssignedMinutes <= output.forecast.totalAllocatableMinutes, true);
+    assert.equal(readFileSync(store, 'utf8'), before);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

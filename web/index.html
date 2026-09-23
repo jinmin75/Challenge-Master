@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Challenge Master</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <section class="panel primary">
+      <div>
+        <p class="eyebrow">로컬 학습 가이드</p>
+        <h1 id="recommendation">오늘 계획을 불러오는 중입니다.</h1>
+        <p id="contract" class="muted">명시적으로 확인한 학습 시간만 다음 계획에 반영합니다.</p>
+        <p id="sourceLabel" class="source">합성 데모 입력입니다.</p>
+      </div>
+      <button id="startButton" type="button">오늘 시작</button>
+    </section>
+    <p id="errorMessage" class="error" role="alert" hidden></p>
+
+    <section class="grid">
+      <form id="progressForm" class="panel">
+        <h2>실제 공부 시간 기록</h2>
+        <label>
+          과업
+          <select id="taskSelect" name="taskId"></select>
+        </label>
+        <label>
+          실제 공부한 분
+          <input id="minutesInput" name="completedMinutes" type="number" min="1" step="1" value="10">
+        </label>
+        <button type="submit">기록</button>
+      </form>
+
+      <form id="shortenForm" class="panel">
+        <h2>오늘 가능한 시간 줄이기</h2>
+        <label>
+          남은 가능 시간
+          <input id="availableInput" name="availableMinutes" type="number" min="0" step="1" value="30">
+        </label>
+        <button type="submit">다시 배정</button>
+      </form>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <h2>쉬기 / 스킵</h2>
+        <div class="actions">
+          <button id="restButton" type="button">오늘 쉬기</button>
+          <button id="skipButton" type="button">선택 과업 스킵</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>현재 상태</h2>
+        <dl>
+          <div><dt>계획 버전</dt><dd id="planVersion">-</dd></div>
+          <div><dt>배정 시간</dt><dd id="assignedMinutes">-</dd></div>
+          <div><dt>확인된 공부</dt><dd id="confirmedMinutes">-</dd></div>
+          <div><dt>미배정 상태</dt><dd id="coverage">-</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>오늘 배정</h2>
+      <ol id="allocations"></ol>
+      <p id="warning" class="warning"></p>
+    </section>
+
+    <section class="panel">
+      <h2>이번 주 예측</h2>
+      <div class="week-stats">
+        <span id="weekObserved">확인 0분</span>
+        <span id="weekTentative">예정 0분</span>
+        <span id="weekDeferred">미배정 0분</span>
+      </div>
+      <ol id="weekAllocations"></ol>
+      <p id="weekWarning" class="warning"></p>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
