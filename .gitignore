@@ -28,3 +28,10 @@ logs/
 *.xlsx
 *.zip
 # Reviewed synthetic fixtures can be allowlisted explicitly later.
+# Local cross-PC handoff note (synced by Google Drive, not published)
+_작업이어가기.md
+# Pilot captures and error logs may show account names; keep them out of the public repo
+*.log
+*.png
+*.jpg
+*.jpeg

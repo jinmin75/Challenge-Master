@@ -9,9 +9,18 @@ const installedRoot = resolve(process.argv[2] ?? join(tmpdir(), 'ChallengeMaster
 const node = join(installedRoot, 'runtime', 'node', 'node.exe');
 const python = join(installedRoot, 'runtime', 'python', 'python.exe');
 const entry = join(installedRoot, 'app', 'src', 'desktop.mjs');
-const dataRoot = mkdtempSync(join(tmpdir(), 'challenge-installed-smoke-'));
+const deleteData = process.argv.includes('--uninstall-delete-data');
+const testUninstall = deleteData || process.argv.includes('--uninstall');
+// Only a throwaway Windows Sandbox may reuse the real per-user data folder or a non-temp install path.
+const disposable = process.env.CHALLENGE_MASTER_DISPOSABLE_VM === '1';
+const defaultDataRoot = join(process.env.LOCALAPPDATA ?? '', 'ChallengeMaster');
+if (deleteData) {
+  assert.ok(process.env.LOCALAPPDATA, 'LOCALAPPDATA is required for the delete-data check');
+  assert.ok(disposable || !existsSync(defaultDataRoot),
+    `Refusing to test record deletion over existing data: ${defaultDataRoot}`);
+}
+const dataRoot = deleteData ? defaultDataRoot : mkdtempSync(join(tmpdir(), 'challenge-installed-smoke-'));
 const children = new Set();
-const testUninstall = process.argv.includes('--uninstall');
 
 function assertInside(root, path) {
   const offset = relative(resolve(root), resolve(path));
@@ -41,9 +50,13 @@ function syntheticPdf() {
 }
 
 function launch() {
+  const env = { ...process.env };
+  // The delete-data check must run against the location the uninstaller removes.
+  if (deleteData) delete env.CHALLENGE_MASTER_DATA_DIR;
+  else env.CHALLENGE_MASTER_DATA_DIR = dataRoot;
   const child = spawn(node, [entry, '--no-browser'], {
     cwd: join(installedRoot, 'app'),
-    env: { ...process.env, CHALLENGE_MASTER_DATA_DIR: dataRoot,
+    env: { ...env,
       PATH: `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32;${process.env.SystemRoot ?? 'C:\\Windows'}` },
     stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
   });
@@ -142,15 +155,29 @@ try {
   const shortcut = join(process.env.APPDATA ?? '', 'Microsoft', 'Windows', 'Start Menu',
     'Programs', 'Challenge Master', 'Challenge Master.lnk');
   assert.ok(existsSync(shortcut), `Missing Start menu shortcut: ${shortcut}`);
+  let runningBlocked = false;
   if (testUninstall) {
-    assertInside(tmpdir(), installedRoot);
-    assert.equal(installedRoot, resolve(tmpdir(), 'ChallengeMasterInstallerSmoke'));
+    if (!disposable) {
+      assertInside(tmpdir(), installedRoot);
+      assert.equal(installedRoot, resolve(tmpdir(), 'ChallengeMasterInstallerSmoke'));
+    }
+    // _?= keeps the uninstaller in place so its exit code reaches this process.
+    const third = launch();
+    const thirdUrl = await third.ready;
+    const blocked = spawnSync(join(installedRoot, 'Uninstall.exe'),
+      ['/S', `_?=${installedRoot}`], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+    assert.equal(blocked.status, 3, 'Uninstall did not refuse while the app was running');
+    assert.ok(existsSync(node), 'Running app was partly removed');
+    assert.ok(existsSync(join(dataRoot, 'setup.json')), 'Records changed during a refused uninstall');
+    runningBlocked = true;
+    await close(thirdUrl, third.child);
     const registered = spawnSync('reg.exe', ['query',
       'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ChallengeMaster',
       '/v', 'InstallLocation'], { encoding: 'utf8', windowsHide: true });
     assert.equal(registered.status, 0, registered.stderr);
     assert.ok(registered.stdout.includes(installedRoot), 'Uninstaller registration points elsewhere');
-    const removed = spawnSync(join(installedRoot, 'Uninstall.exe'), ['/S'], {
+    const removed = spawnSync(join(installedRoot, 'Uninstall.exe'),
+      deleteData ? ['/S', '/DELETEDATA'] : ['/S'], {
       encoding: 'utf8', windowsHide: true, timeout: 30000,
     });
     assert.equal(removed.status, 0, removed.stderr);
@@ -163,15 +190,26 @@ try {
       'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ChallengeMaster'],
     { encoding: 'utf8', windowsHide: true });
     assert.notEqual(registrationAfter.status, 0, 'Uninstall registration remains');
-    assert.ok(existsSync(join(dataRoot, 'setup.json')), 'Student setup was removed');
-    assert.ok(existsSync(join(dataRoot, 'study-web.json')), 'Student progress was removed');
+    if (deleteData) {
+      for (let attempt = 0; attempt < 100 && existsSync(dataRoot); attempt += 1) {
+        await new Promise(done => setTimeout(done, 100));
+      }
+      assert.equal(existsSync(dataRoot), false, 'Selected record deletion left the data folder');
+    } else {
+      assert.ok(existsSync(join(dataRoot, 'setup.json')), 'Student setup was removed');
+      assert.ok(existsSync(join(dataRoot, 'study-web.json')), 'Student progress was removed');
+    }
   }
   console.log(JSON.stringify({ installedRoot, bundledPython: pythonCheck.stdout.trim(),
     pdfPages: 1, confirmedProgressMinutes: restored.confirmedProgressMinutes,
     restartPersisted: true, shortcutPresent: true,
-    uninstallVerified: testUninstall, studentDataPreserved: testUninstall }, null, 2));
+    uninstallVerified: testUninstall, runningUninstallBlocked: runningBlocked,
+    studentDataPreserved: testUninstall && !deleteData,
+    studentDataDeletedOnRequest: deleteData }, null, 2));
 } finally {
   for (const child of children) child.kill();
-  assertInside(tmpdir(), dataRoot);
-  rmSync(dataRoot, { recursive: true, force: true });
+  if (!deleteData) {
+    assertInside(tmpdir(), dataRoot);
+    rmSync(dataRoot, { recursive: true, force: true });
+  }
 }

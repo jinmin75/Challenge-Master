@@ -14,8 +14,10 @@ const build = mkdtempSync(join(tmpdir(), 'challenge-master-installer-'));
 const stage = resolve(build, 'stage');
 const tools = resolve(build, 'tools');
 const dist = resolve(project, 'dist');
-const output = resolve(dist, 'Challenge-Master-Setup-0.4.0-win-x64.exe');
-const localOutput = resolve(build, 'Challenge-Master-Setup-0.4.0-win-x64.exe');
+const version = JSON.parse(readFileSync(resolve(project, 'package.json'), 'utf8')).version;
+if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Unsupported package version: ${version}`);
+const output = resolve(dist, `Challenge-Master-Setup-${version}-win-x64.exe`);
+const localOutput = resolve(build, `Challenge-Master-Setup-${version}-win-x64.exe`);
 
 const artifacts = [
   {
@@ -63,7 +65,7 @@ async function acquire(artifact) {
   if (existsSync(temporary)) unlinkSync(temporary);
   const response = await fetch(artifact.url, {
     redirect: 'follow',
-    headers: { 'user-agent': 'ChallengeMasterInstallerBuilder/0.4' },
+    headers: { 'user-agent': `ChallengeMasterInstallerBuilder/${version}` },
     signal: AbortSignal.timeout(180000),
   });
   if (!response.ok || !response.body) throw new Error(`Download failed: ${artifact.name} HTTP ${response.status}`);
@@ -80,7 +82,9 @@ async function acquire(artifact) {
 
 function extract(archive, directory) {
   mkdirSync(directory, { recursive: true });
-  const result = spawnSync('tar.exe', ['-xf', archive, '-C', directory], {
+  // Git Bash puts GNU tar first on PATH, which reads 'H:' as a remote host.
+  const tar = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  const result = spawnSync(tar, ['-xf', archive, '-C', directory], {
     encoding: 'utf8', windowsHide: true, timeout: 120000,
   });
   if (result.error || result.status !== 0) {
@@ -183,7 +187,7 @@ async function main() {
   const makensis = findFile(nsisUnpacked, 'makensis.exe');
   const outputDir = resolve(localOutput, '..');
   mkdirSync(outputDir, { recursive: true });
-  console.log(run(makensis, ['/V2', '/INPUTCHARSET', 'UTF8', `/DSTAGE=${stage}`,
+  console.log(run(makensis, ['/V2', '/INPUTCHARSET', 'UTF8', `/DSTAGE=${stage}`, `/DVERSION=${version}`,
     `/DOUTPUT=${localOutput}`, join(project, 'packaging', 'challenge-master.nsi')]));
   if (!existsSync(localOutput) || statSync(localOutput).size < 1024 * 1024) {
     throw new Error('Installer output is missing or unexpectedly small');
@@ -191,7 +195,7 @@ async function main() {
   copyFile(localOutput, output);
   writeFileSync(`${output}.sha256`, `${digest(output)}  ${basename(output)}\n`, 'utf8');
   console.log(JSON.stringify({ installer: output, bytes: statSync(output).size,
-    sha256: digest(output), node: '24.21.0', python: '3.14.7', pypdf: '6.17.0' }, null, 2));
+    sha256: digest(output), version, node: '24.21.0', python: '3.14.7', pypdf: '6.17.0' }, null, 2));
   ensureInside(tmpdir(), build);
   rmSync(build, { recursive: true, force: true });
 }

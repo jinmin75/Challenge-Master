@@ -17,6 +17,14 @@ const planInput = {
   ],
 };
 
+// The weekly forecast drops days before the local today, so forecast tests need live dates.
+function localDate(offsetDays = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')].join('-');
+}
+
 async function withServer(fn, input = planInput, options = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'challenge-master-web-'));
   const storeFile = join(dir, 'study.json');
@@ -302,19 +310,21 @@ test('the same progress request id records minutes only once', async () => {
 });
 
 test('web status refreshes weekly forecast from confirmed progress and configured week days', async () => {
+  const today = localDate();
   const input = {
     ...planInput,
+    date: today,
     weekDays: [
-      { date: '2026-09-23', availableMinutes: 20 },
-      { date: '2026-09-24', availableMinutes: 20 },
+      { date: today, availableMinutes: 20 },
+      { date: localDate(1), availableMinutes: 20 },
     ],
   };
   await withServer(async ({ baseUrl }) => {
-    const started = await request(baseUrl, '/api/start', { date: '2026-09-23' });
+    const started = await request(baseUrl, '/api/start', { date: today });
     const taskId = started.recommendedAction.taskId;
     const before = await request(baseUrl, '/api/status');
     assert.equal(before.weeklyForecast.tentativeAllocations.every(item => item.status === 'tentative'), true);
-    assert.equal(before.weeklyForecast.startDate, '2026-09-23');
+    assert.equal(before.weeklyForecast.startDate, today);
 
     const after = await request(baseUrl, '/api/progress', { taskId, completedMinutes: 5 });
     assert.equal(after.weeklyForecast.totalObservedCompletedMinutes, 5);
@@ -324,20 +334,21 @@ test('web status refreshes weekly forecast from confirmed progress and configure
 });
 
 test('weekly forecast follows the current shortened or rest plan', async () => {
+  const today = localDate();
   await withServer(async ({ baseUrl }) => {
-    const started = await request(baseUrl, '/api/start', { date: '2026-09-23' });
+    const started = await request(baseUrl, '/api/start', { date: today });
     assert.equal(started.weeklyForecast.days[0].availableMinutes, 60);
     const shortened = await request(baseUrl, '/api/shorten', {
-      date: '2026-09-23', availableMinutes: 30
+      date: today, availableMinutes: 30
     });
     assert.equal(shortened.weeklyForecast.days[0].availableMinutes, 30);
     assert.equal(shortened.weeklyForecast.days[0].allocatableMinutes, 27);
-    const rested = await request(baseUrl, '/api/rest', { date: '2026-09-23' });
+    const rested = await request(baseUrl, '/api/rest', { date: today });
     assert.equal(rested.weeklyForecast.days[0].assignedMinutes, 0);
     assert.equal(rested.weeklyForecast.days[0].allocatableMinutes, 0);
-  }, { ...planInput, weekDays: [
-    { date: '2026-09-23', availableMinutes: 20 },
-    { date: '2026-09-24', availableMinutes: 20 }
+  }, { ...planInput, date: today, weekDays: [
+    { date: today, availableMinutes: 20 },
+    { date: localDate(1), availableMinutes: 20 }
   ] });
 });
 
