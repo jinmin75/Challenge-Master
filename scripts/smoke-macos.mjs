@@ -51,8 +51,9 @@ try {
   const opened = run('open', ['-n', app, '--args', '--no-browser']);
   assert.equal(opened.status, 0, opened.stderr);
   const instance = join(defaultData, 'instance.json');
+  // The first open of an unsigned bundle can wait on macOS checks; 30 seconds timed out once in CI (2026-09-28).
   const url = await waitFor(() => existsSync(instance) && JSON.parse(readFileSync(instance, 'utf8')).url,
-    'the server started through open');
+    'the server started through open', 90);
   const status = await json(url, '/api/status');
   assert.equal(status.setup.configured, false);
   await json(url, '/api/quit', {});

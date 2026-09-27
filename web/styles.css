@@ -385,6 +385,11 @@ ol {
 .lg-rest::before { background: #f2f3f5; }
 .lg-makeup::before { background: #fbfbfa; border: 2px solid #25665a !important; }
 
+#dayPanel,
+#monthPanel {
+  align-self: start;
+}
+
 .day-facts {
   margin-bottom: 12px;
 }

@@ -114,6 +114,12 @@ export async function exerciseApp(launch, dataRoot) {
   assert.equal(restored.setup.configured, true);
   assert.equal(restored.confirmedProgressMinutes, 5);
   assert.ok(restored.weeklyForecast);
+  // v0.7 calendar: the packaged app serves the page module and builds the month from the restored records.
+  const calendar = await json(secondUrl, `/api/calendar?month=${date.slice(0, 7)}`);
+  const today = calendar.days.find(day => day.date === date);
+  assert.deepEqual([today.state, today.confirmedMinutes], ['today', 5]);
+  const page = await fetch(new URL('/calendar.js', secondUrl));
+  assert.equal(page.status, 200, 'calendar.js is not packaged');
   await closeApp(secondUrl, second.child);
   return restored;
 }
