@@ -6,12 +6,20 @@ import { applyEvent, emptyState } from './events.mjs';
 
 const maxBytes = 5 * 1024 * 1024;
 
+// A root-owned link is system layout (macOS /var -> /private/var) that a user-level process
+// could not have planted. Windows reports uid 0 for every file, so there every link is refused.
+export function plantableLink(stats, platform = process.platform) {
+  return stats.isSymbolicLink() && (platform === 'win32' || stats.uid !== 0);
+}
+
 function safePath(file) {
   const full = resolve(file);
   let current = parse(full).root;
   for (const component of full.slice(current.length).split(sep)) {
     current = resolve(current, component);
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) throw new Error('Store symbolic links are not supported');
+    if (existsSync(current) && plantableLink(lstatSync(current))) {
+      throw new Error('Store symbolic links are not supported');
+    }
   }
   return full;
 }
