@@ -1,22 +1,23 @@
 # 작업 상태
 
-기준일: `2026-09-27`. 설계 v4.2 / Windows·macOS 시범판 v0.6. 현재 목표는 학생 2~3명 시범 사용판이며 Mac 사용자도 포함한다([D016~D018](decisions.md), [PRD 9.2절](prd.md)).
+기준일: `2026-09-28`. 설계 v4.2 / Windows·macOS 시범판 v0.6.2. 현재 목표는 학생 2~3명 시범 사용판이며 Mac 사용자도 포함한다([D016~D018](decisions.md), [PRD 9.2절](prd.md)).
 
 | 구분 | 현재 상태 | 근거/다음 확인 |
 |---|---|---|
-| Windows 설치파일 | v0.6 NSIS 설치파일; 앱 전용 Node.js와 pdf.js 포함, Python 없음; 서명 없음 | [v0.6 검증](verification-v0.6.md) |
+| Windows 설치파일 | v0.6.2 NSIS 설치파일; 앱 전용 Node.js와 pdf.js 포함, Python 없음; 서명 없음 | [v0.6 검증](verification-v0.6.md) |
 | macOS 앱 | `Challenge Master.app` 압축파일; Apple Silicon·Intel 겸용; 서명·공증 없음 | GitHub macOS 환경(arm64·Intel)에서 빌드·자동 시험 통과; 실제 Mac 학생 사용은 NOT RUN |
-| 제거 시 기록 선택 | Windows: 기본 보존, 선택 시 기록 폴더 삭제, 실행 중 제거 거부. Mac: 앱을 휴지통으로 옮기면 기록 보존, 기록 삭제는 폴더를 직접 지움 | Windows 무인 모드 통과; 제거 화면 육안 확인 NOT RUN |
+| 제거 시 기록 선택 | Windows: 기본 보존, 선택 시 기록 폴더 삭제, 실행 중 제거 거부. Mac: 앱을 휴지통으로 옮기면 기록 보존, 기록 삭제는 폴더를 직접 지움 | Windows 무인 모드 통과; 샌드박스에서 실제 제거 화면 캡처로 문구·기본값 확인 |
 | 깨끗한 Windows 시험 | 네트워크를 끈 Windows 샌드박스에서 v0.6 설치·반입·기록·재시작·제거 통과 | [v0.6 검증](verification-v0.6.md); 경고 화면은 범위 밖 |
 | PDF → MD | pdf.js로 선택 쪽의 글자 초안과 출처 manifest 저장; 검토 전 `needs_review`; 글자 없는 쪽은 `글자 없음`으로 표시 | 스캔 OCR·표/수식 복원은 시범 관찰 뒤 순서 결정 |
 | 학생용 로컬 화면 | PDF·페이지 범위·공부 과업·시간 설정, 오늘 계획·기록·휴식·주간 예측 표시 | 합성 HTTP 회귀 확인; 학생 사용성은 시범에서 관찰 예정 |
+| 브라우저 PDF 등록 | v0.4~v0.6.0은 실제 브라우저에서 등록 요청이 비어 항상 실패했음(0.6.1에서 수정) | [v0.6 검증](verification-v0.6.md) 0.6.1 절; v0.6.0 이하 설치본은 배포하지 않음 |
 | 주간 재계획 | 확인한 공부 기록만 반영해 7일 예측 갱신; 미래 분량은 tentative | 합성 회귀 검증; 실제 학생 이행률·효과 미검증 |
-| 시범 운영 자료 | [시범 운영 절차](pilot/pilot-plan.md), [Windows 안내](pilot/student-install-guide.md), [Mac 안내](pilot/student-install-guide-mac.md); 전달은 구글 드라이브 링크(D017) | `확인 필요` 문구는 실제 설치 화면으로 확정한 뒤 배포 |
+| 시범 운영 자료 | [시범 운영 절차](pilot/pilot-plan.md), 학생 가이드 PDF 원본([Windows](pilot/guide/guide-windows.html), [Mac](pilot/guide/guide-mac.html)); 전달은 구글 드라이브 링크(D017) | 실제 화면 캡처 포함; 파란 경고 창·Mac 첫 경고 창 문구는 미확인이라 가이드에 그렇게 적음 |
 | 자동 빌드 | GitHub Actions `packages`: 세 운영체제 단위 테스트, macOS 앱 빌드와 arm64·Intel 시험 | 공개 저장소의 표준 실행 환경 사용 |
 | 실제 학생 계정 연결 | NOT RUN | 시범 관찰 뒤 공식 지원 경로 한 조합 확인 |
 | 실제 교재·학생 사용성 | NOT RUN | 시범에서 관찰 |
 | 제품 전체 검증 | K01–K25 NOT RUN | 로컬 회귀와 설치본 시험을 제품 전체 검증으로 대체하지 않음 |
-| 코드 검사 | `npm test` 102/102, `npm run check` 32개 JS 모듈 통과 | 전체 린트·타입 검사 아님 |
+| 코드 검사 | `npm test` 104/104, `npm run check` 33개 JS 모듈 통과 | 전체 린트·타입 검사 아님 |
 
 ## 시범 전에 남은 일
 

@@ -68,6 +68,7 @@
 | L16 | Node.js·Python이 없는 Windows 샌드박스(네트워크 끔)에서 기본 경로 설치 | L13의 설치·반입·재시작·제거와 L15의 보존·삭제를 같은 스크립트로 반복 | `2026-09-27` 통과(무인 설치 기준); 경고 화면·화면 조작은 범위 밖 |
 | L17 | pdf.js 추출: 영어·한글(ToUnicode)·빈 쪽·이미지만 있는 쪽·범위 밖·정렬 오류·PDF 아님 | 글자 초안과 이미지 수 기록, 글자 없는 쪽은 화면에 `글자 없음`, 오류 입력은 산출물 없이 거부, 암호 PDF 거부 | `2026-09-27` 합성 PDF 통과; 암호 PDF·대용량 PDF는 NOT RUN |
 | L18 | macOS 앱 압축파일을 Node.js 없는 경로로 Apple Silicon·Intel Mac에서 실행 | 실행기로 PDF 반입·기록·재시작 유지, `open`으로 실행 시 서버 동작, 기록은 `~/Library/Application Support` | `2026-09-27` GitHub macOS 26(arm64)·15(Intel) 통과; 실제 Mac의 허용 단계는 NOT RUN |
+| L19 | 실제 브라우저에서 PDF 등록 양식 제출 | 파일과 입력값이 모두 전송되어 등록 성공; 입력 칸 비활성화 전에 FormData를 만든다 | `2026-09-28` 헤드리스 Chrome으로 설치된 0.6.1에서 확인, 순서는 `tests/app-form.test.mjs`로 고정; 설치본 시험 자동화는 NOT RUN |
 
 ## 정책 검증 방법
 

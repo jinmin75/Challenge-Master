@@ -35,3 +35,5 @@ _작업이어가기.md
 *.png
 *.jpg
 *.jpeg
+# Screenshots used by the student guides (reviewed; no personal data)
+!docs/pilot/guide/img/*.png
