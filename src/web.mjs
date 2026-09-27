@@ -87,9 +87,12 @@ function planInputFromSetup(setup) {
 function pageStatusList(setup) {
   const summary = setup.source.extraction?.summary;
   if (!summary) return [];
+  // Setups saved before v0.6 have no textlessPages; report their text state as unknown (null).
+  const textless = setup.source.extraction.textlessPages;
   return summary.selectedPages.map(number => ({
     pdfPageIndex: number,
     status: summary.failedPages.includes(number) ? 'failed' : 'needs_review',
+    hasText: Array.isArray(textless) ? !textless.includes(number) : null,
     reviewRequired: true,
   }));
 }
@@ -436,6 +439,8 @@ function buildSetup({ parts, sourceDir, draftDir, pdfConverter = convertPdf }) {
         manifestFile,
         draftFile,
         summary: extraction.summary,
+        // Pages that yielded no text (scans or blank pages); the screen must not call them drafts.
+        textlessPages: selectedPages.filter(number => !extraction.manifest.pages[String(number)]?.markdown),
       },
     },
   };

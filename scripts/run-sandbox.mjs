@@ -57,7 +57,7 @@ async function main() {
   mkdirSync(inputDir);
   mkdirSync(outputDir);
   copyFileSync(installer, join(inputDir, installerName));
-  for (const script of ['smoke-installer.mjs', 'sandbox-run.ps1']) {
+  for (const script of ['smoke-installer.mjs', 'smoke-app.mjs', 'sandbox-run.ps1']) {
     copyFileSync(join(project, 'scripts', script), join(inputDir, script));
   }
   console.log(`Sandbox workspace: ${work}`);

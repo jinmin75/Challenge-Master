@@ -189,7 +189,8 @@ textarea {
   color: #8a4d00;
 }
 
-.extraction li.failed {
+.extraction li.failed,
+.extraction li.textless {
   color: #842a2a;
 }
 

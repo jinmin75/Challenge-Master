@@ -2,11 +2,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { browserCommand, defaultDataRoot } from './platform.mjs';
 import { startServer } from './web.mjs';
 
-const installRoot = resolve(import.meta.dirname, '../..');
-const dataRoot = resolve(process.env.CHALLENGE_MASTER_DATA_DIR ??
-  join(process.env.LOCALAPPDATA ?? process.env.HOME ?? installRoot, 'ChallengeMaster'));
+const dataRoot = resolve(process.env.CHALLENGE_MASTER_DATA_DIR ?? defaultDataRoot());
 const instanceFile = join(dataRoot, 'instance.json');
 const noBrowser = process.argv.includes('--no-browser');
 
@@ -37,8 +36,8 @@ async function existingInstance() {
 
 function openBrowser(url) {
   if (noBrowser) return;
-  execFile('rundll32.exe', ['url.dll,FileProtocolHandler', url],
-    { windowsHide: true }, error => {
+  const [command, args] = browserCommand(process.platform, url);
+  execFile(command, args, { windowsHide: true }, error => {
       if (error) console.error(`브라우저를 열지 못했습니다: ${error.message}`);
     });
 }
@@ -46,8 +45,6 @@ function openBrowser(url) {
 async function run() {
   mkdirSync(dataRoot, { recursive: true });
   process.env.CHALLENGE_MASTER_DATA_DIR = dataRoot;
-  const bundledPython = join(installRoot, 'runtime', 'python', 'python.exe');
-  if (existsSync(bundledPython)) process.env.CHALLENGE_MASTER_PYTHON = bundledPython;
 
   const active = await existingInstance();
   if (active) {

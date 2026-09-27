@@ -83,14 +83,14 @@ async function rawRequest(baseUrl, path, { body, headers = {}, method = 'POST' }
   });
 }
 
-function fakePdfConverter(calls, { failedPages = [] } = {}) {
+function fakePdfConverter(calls, { failedPages = [], textlessPages = [] } = {}) {
   return (input) => {
     calls.push(input);
     const selectedPages = [...input.selectedPages];
     const pages = Object.fromEntries(selectedPages.map(number => [String(number), {
       pdfPageIndex: number,
       printedPageLabel: String(number),
-      markdown: failedPages.includes(number) ? '' : `추출 초안 ${number}`,
+      markdown: failedPages.includes(number) || textlessPages.includes(number) ? '' : `추출 초안 ${number}`,
       status: failedPages.includes(number) ? 'failed' : 'needs_review',
       blocks: [],
       validation: {
@@ -435,11 +435,32 @@ test('student setup reports failed extracted pages without making any page ready
     assert.equal(response.status, 200, data.error);
     assert.equal(data.setup.source.extractionStatus, 'failed');
     assert.deepEqual(data.setup.source.pages, [
-      { pdfPageIndex: 1, status: 'needs_review', reviewRequired: true },
-      { pdfPageIndex: 2, status: 'failed', reviewRequired: true },
+      { pdfPageIndex: 1, status: 'needs_review', hasText: true, reviewRequired: true },
+      { pdfPageIndex: 2, status: 'failed', hasText: false, reviewRequired: true },
     ]);
     assert.deepEqual(convertCalls[0].selectedPages, [1, 2]);
   }, { pdfConverter: fakePdfConverter(convertCalls, { failedPages: [2] }) });
+});
+
+test('student setup marks pages without extracted text so scans are not shown as drafts', async () => {
+  const convertCalls = [];
+  await withOnboardingServer(async ({ baseUrl, configFile }) => {
+    const form = new FormData();
+    form.append('pdf', new Blob([Buffer.from('%PDF-1.7\r\n%%EOF\r\n')], { type: 'application/pdf' }), 'scan.pdf');
+    form.append('title', '스캔 자료');
+    form.append('dailyMinutes', '45');
+    form.append('weeklyMinutes', '120');
+    form.append('pageStart', '1');
+    form.append('pageEnd', '2');
+    form.append('tasks', '1장 읽기 | 40 | new');
+    const response = await fetch(`${baseUrl}/api/setup`, { method: 'POST', body: form });
+    const data = await response.json();
+    assert.equal(response.status, 200, data.error);
+    assert.deepEqual(data.setup.source.pages.map(page => [page.status, page.hasText]),
+      [['needs_review', true], ['needs_review', false]]);
+    const saved = JSON.parse(readFileSync(configFile, 'utf8'));
+    assert.deepEqual(saved.source.extraction.textlessPages, [2]);
+  }, { pdfConverter: fakePdfConverter(convertCalls, { textlessPages: [2] }) });
 });
 
 test('student setup rejects non-PDF uploads without changing the plan source', async () => {

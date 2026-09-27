@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
+import { children, closeApp, exerciseApp, startApp } from './smoke-app.mjs';
 
 const installedRoot = resolve(process.argv[2] ?? join(tmpdir(), 'ChallengeMasterInstallerSmoke'));
 const node = join(installedRoot, 'runtime', 'node', 'node.exe');
-const python = join(installedRoot, 'runtime', 'python', 'python.exe');
 const entry = join(installedRoot, 'app', 'src', 'desktop.mjs');
+const pdfjsEntry = join(installedRoot, 'app', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.mjs');
 const deleteData = process.argv.includes('--uninstall-delete-data');
 const testUninstall = deleteData || process.argv.includes('--uninstall');
 // Only a throwaway Windows Sandbox may reuse the real per-user data folder or a non-temp install path.
@@ -20,33 +20,10 @@ if (deleteData) {
     `Refusing to test record deletion over existing data: ${defaultDataRoot}`);
 }
 const dataRoot = deleteData ? defaultDataRoot : mkdtempSync(join(tmpdir(), 'challenge-installed-smoke-'));
-const children = new Set();
 
 function assertInside(root, path) {
   const offset = relative(resolve(root), resolve(path));
   assert.ok(offset && offset !== '..' && !offset.startsWith(`..${sep}`));
-}
-
-function syntheticPdf() {
-  const content = 'BT /F1 14 Tf 72 720 Td (Installed PDF smoke test) Tj ET';
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
-  ];
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  for (const [index, object] of objects.entries()) {
-    offsets.push(Buffer.byteLength(pdf));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  }
-  const xref = Buffer.byteLength(pdf);
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return Buffer.from(pdf, 'latin1');
 }
 
 function launch() {
@@ -54,103 +31,19 @@ function launch() {
   // The delete-data check must run against the location the uninstaller removes.
   if (deleteData) delete env.CHALLENGE_MASTER_DATA_DIR;
   else env.CHALLENGE_MASTER_DATA_DIR = dataRoot;
-  const child = spawn(node, [entry, '--no-browser'], {
-    cwd: join(installedRoot, 'app'),
-    env: { ...env,
-      PATH: `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32;${process.env.SystemRoot ?? 'C:\\Windows'}` },
-    stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-  });
-  children.add(child);
-  const ready = new Promise((done, fail) => {
-    let output = '';
-    let errors = '';
-    const timer = setTimeout(() => fail(new Error(`Installed app startup timeout: ${errors}`)), 15000);
-    child.stdout.on('data', chunk => {
-      output += chunk.toString();
-      const match = output.match(/Challenge Master: (http:\/\/127\.0\.0\.1:\d+\/)/);
-      if (match) { clearTimeout(timer); done(match[1]); }
-    });
-    child.stderr.on('data', chunk => { errors += chunk.toString(); });
-    child.once('error', error => { clearTimeout(timer); fail(error); });
-    child.once('exit', code => {
-      children.delete(child);
-      if (!output.includes('Challenge Master:')) {
-        clearTimeout(timer);
-        fail(new Error(`Installed app exited ${code}: ${errors}`));
-      }
-    });
-  });
-  return { child, ready };
-}
-
-async function json(url, path, body) {
-  const response = await fetch(new URL(path, url), body === undefined ? {} : {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const result = await response.json();
-  assert.equal(response.status, 200, result.error ?? JSON.stringify(result));
-  return result;
-}
-
-async function close(url, child) {
-  await json(url, '/api/quit', {});
-  if (child.exitCode !== null) return;
-  await new Promise((done, fail) => {
-    const timer = setTimeout(() => fail(new Error('Installed app did not exit')), 10000);
-    child.once('exit', () => { clearTimeout(timer); done(); });
-  });
+  // A PATH without developer tools proves the app needs only its bundled runtime.
+  const system = process.env.SystemRoot ?? 'C:\\Windows';
+  return startApp({ command: node, args: [entry, '--no-browser'], cwd: join(installedRoot, 'app'),
+    env: { ...env, PATH: `${system}\\System32;${system}` } });
 }
 
 try {
-  for (const file of [node, python, entry, join(installedRoot, 'Uninstall.exe')]) {
+  for (const file of [node, entry, pdfjsEntry, join(installedRoot, 'Uninstall.exe')]) {
     assert.ok(existsSync(file), `Missing installed file: ${file}`);
   }
-  const pythonCheck = spawnSync(python, ['-c', 'import pypdf; print(pypdf.__version__)'], {
-    encoding: 'utf8', windowsHide: true, timeout: 10000,
-  });
-  assert.equal(pythonCheck.status, 0, pythonCheck.stderr);
-  assert.equal(pythonCheck.stdout.trim(), '6.17.0');
+  assert.equal(existsSync(join(installedRoot, 'runtime', 'python')), false, 'Python runtime is still bundled');
 
-  const first = launch();
-  const firstUrl = await first.ready;
-  const before = await json(firstUrl, '/api/status');
-  assert.equal(before.setup.configured, false);
-
-  const pdf = syntheticPdf();
-  const form = new FormData();
-  form.append('pdf', new Blob([pdf], { type: 'application/pdf' }), 'installed-smoke.pdf');
-  form.append('title', '설치본 검증 자료');
-  form.append('pageStart', '1');
-  form.append('pageEnd', '1');
-  form.append('dailyMinutes', '40');
-  form.append('weeklyMinutes', '200');
-  form.append('tasks', '합성 1쪽 읽기 | 30 | new');
-  const setupResponse = await fetch(new URL('/api/setup', firstUrl), { method: 'POST', body: form });
-  const setup = await setupResponse.json();
-  assert.equal(setupResponse.status, 200, setup.error ?? JSON.stringify(setup));
-  assert.deepEqual(setup.setup.source.pages.map(page => page.status), ['needs_review']);
-  const saved = JSON.parse(readFileSync(join(dataRoot, 'setup.json'), 'utf8'));
-  assert.deepEqual(readFileSync(saved.source.storedFile), pdf);
-  assert.match(readFileSync(saved.source.extraction.draftFile, 'utf8'), /Installed PDF smoke test/);
-  assert.deepEqual(saved.source.extraction.summary.readyPages, []);
-
-  const date = new Date().toLocaleDateString('en-CA');
-  const started = await json(firstUrl, '/api/start', { date });
-  assert.ok(started.currentPlan.allocations.length > 0);
-  const taskId = started.currentPlan.allocations[0].taskId;
-  const progressed = await json(firstUrl, '/api/progress', {
-    requestId: randomUUID(), taskId, completedMinutes: 5,
-  });
-  assert.equal(progressed.confirmedProgressMinutes, 5);
-  await close(firstUrl, first.child);
-
-  const second = launch();
-  const secondUrl = await second.ready;
-  const restored = await json(secondUrl, '/api/status');
-  assert.equal(restored.setup.configured, true);
-  assert.equal(restored.confirmedProgressMinutes, 5);
-  assert.ok(restored.weeklyForecast);
-  await close(secondUrl, second.child);
+  const restored = await exerciseApp(launch, dataRoot);
 
   const shortcut = join(process.env.APPDATA ?? '', 'Microsoft', 'Windows', 'Start Menu',
     'Programs', 'Challenge Master', 'Challenge Master.lnk');
@@ -170,7 +63,7 @@ try {
     assert.ok(existsSync(node), 'Running app was partly removed');
     assert.ok(existsSync(join(dataRoot, 'setup.json')), 'Records changed during a refused uninstall');
     runningBlocked = true;
-    await close(thirdUrl, third.child);
+    await closeApp(thirdUrl, third.child);
     const registered = spawnSync('reg.exe', ['query',
       'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ChallengeMaster',
       '/v', 'InstallLocation'], { encoding: 'utf8', windowsHide: true });
@@ -200,7 +93,7 @@ try {
       assert.ok(existsSync(join(dataRoot, 'study-web.json')), 'Student progress was removed');
     }
   }
-  console.log(JSON.stringify({ installedRoot, bundledPython: pythonCheck.stdout.trim(),
+  console.log(JSON.stringify({ installedRoot, pdfjsBundled: true,
     pdfPages: 1, confirmedProgressMinutes: restored.confirmedProgressMinutes,
     restartPersisted: true, shortcutPresent: true,
     uninstallVerified: testUninstall, runningUninstallBlocked: runningBlocked,

@@ -1,14 +1,20 @@
 {
   "name": "challenge-master",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.mjs",
     "demo": "node src/cli.mjs demo",
     "build:installer": "node scripts/build-installer.mjs",
-    "test:sandbox": "node scripts/run-sandbox.mjs"
+    "test:sandbox": "node scripts/run-sandbox.mjs",
+    "build:macos": "node scripts/build-macos.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.3.289"
   }
 }

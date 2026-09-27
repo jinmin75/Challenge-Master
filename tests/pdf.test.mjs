@@ -64,7 +64,43 @@ test('actual PDF pages become traced local drafts without false ready or mastery
     edition: 'v1', selectedPages: [1, 2] }), result);
 });
 
-test('PDF extraction preserves Korean text through the Python JSON pipe', () => {
+function imageOnlyPdf() {
+  // One 1x1 grey inline image and no text: what a scanned page looks like to the extractor.
+  const stream = 'q 100 0 0 100 72 600 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \u0080 EI Q';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`,
+  ];
+  let document = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(document, 'latin1'));
+    document += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(document, 'latin1');
+  document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) document += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  document += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(document, 'latin1');
+}
+
+test('an image-only page is reported as textless with its image, not as extracted text', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'challenge-pdf-scan-'));
+  const path = join(folder, 'scan.pdf');
+  writeFileSync(path, imageOnlyPdf());
+  const result = convertPdf({ pdfPath: path, sourceId: 'scan-test', title: 'Scan',
+    edition: 'v1', selectedPages: [1] });
+  const page = result.manifest.pages['1'];
+  assert.equal(page.markdown, '');
+  assert.equal(page.status, 'needs_review');
+  assert.ok(page.validation.issues.some(issue => issue.startsWith('추출된 텍스트 없음')));
+  assert.ok(page.validation.issues.some(issue => issue.startsWith('이미지 1개')));
+  assert.equal(result.summary.conversionVersion, 'pdfjs-text-v1');
+});
+
+test('PDF extraction preserves Korean text through the extractor JSON pipe', () => {
   const folder = mkdtempSync(join(tmpdir(), 'challenge-pdf-ko-'));
   const path = join(folder, 'korean.pdf');
   writeFileSync(path, tinyPdf({ korean: true }));

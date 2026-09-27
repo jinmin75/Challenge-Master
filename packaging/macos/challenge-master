@@ -1,0 +1,19 @@
+#!/bin/bash
+# Challenge Master launcher inside "Challenge Master.app/Contents/MacOS".
+# Picks the bundled Node.js for this Mac's CPU, starts the local server in the background and exits,
+# so opening the app again while the server runs simply reopens the page in the browser.
+set -euo pipefail
+contents="$(cd "$(dirname "$0")/.." && pwd)"
+case "$(uname -m)" in
+  arm64) node="$contents/Resources/runtime/node-arm64/node" ;;
+  *) node="$contents/Resources/runtime/node-x64/node" ;;
+esac
+cd "$contents/Resources/app"
+# Tests set CHALLENGE_MASTER_FOREGROUND=1 to read the printed URL and exit code directly.
+if [ "${CHALLENGE_MASTER_FOREGROUND:-0}" = "1" ]; then
+  exec "$node" src/desktop.mjs "$@"
+fi
+log_dir="$HOME/Library/Logs/ChallengeMaster"
+mkdir -p "$log_dir"
+nohup "$node" src/desktop.mjs "$@" >>"$log_dir/launcher.log" 2>&1 &
+disown

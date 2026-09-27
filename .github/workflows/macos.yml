@@ -1,0 +1,62 @@
+# Builds and smoke-tests the macOS app on GitHub-hosted Macs (free for public repositories),
+# so the Mac build is verified without owning a Mac. Also runs the unit tests on Linux and Windows.
+name: packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci --omit=optional
+      - run: npm test
+      - run: npm run check
+
+  macos-app:
+    needs: unit-tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci --omit=optional
+      - run: node scripts/build-macos.mjs
+      - name: Smoke test on Apple Silicon
+        run: node scripts/smoke-macos.mjs dist/Challenge-Master-*-macos.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: challenge-master-macos
+          path: |
+            dist/Challenge-Master-*-macos.zip
+            dist/Challenge-Master-*-macos.zip.sha256
+          retention-days: 30
+
+  macos-intel-smoke:
+    needs: macos-app
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: challenge-master-macos
+          path: dist
+      - name: Smoke test the same zip on an Intel Mac
+        run: node scripts/smoke-macos.mjs dist/Challenge-Master-*-macos.zip

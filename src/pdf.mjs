@@ -4,11 +4,12 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { applyPageResult, createManifest, summarizeManifest } from './ingest.mjs';
 
-const CONVERSION_VERSION = 'pypdf-layout-v1';
+const CONVERSION_VERSION = 'pdfjs-text-v1';
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
+// V8 heap cap for the extractor process; untrusted PDFs can expand compressed streams.
+const EXTRACTOR_HEAP_MB = 512;
 
-export function convertPdf({ pdfPath, sourceId, title, edition, selectedPages,
-  python = process.env.CHALLENGE_MASTER_PYTHON ?? 'python' }) {
+export function convertPdf({ pdfPath, sourceId, title, edition, selectedPages }) {
   if (typeof pdfPath !== 'string' || pdfPath.trim() === '') throw new Error('pdfPath is required');
   if (!Array.isArray(selectedPages)) throw new Error('selectedPages must be an array');
   const pdf = resolve(pdfPath);
@@ -17,8 +18,9 @@ export function convertPdf({ pdfPath, sourceId, title, edition, selectedPages,
   if (bytes.length > MAX_PDF_BYTES) throw new Error('PDF exceeds 50 MiB local extraction limit');
   if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') throw new Error('input is not a PDF');
   const sourceHash = createHash('sha256').update(bytes).digest('hex');
-  const helper = resolve(import.meta.dirname, '../scripts/pdf_extract.py');
-  const child = spawnSync(python, [helper, pdf, JSON.stringify(selectedPages)], {
+  const helper = resolve(import.meta.dirname, 'pdf-extract.mjs');
+  const child = spawnSync(process.execPath,
+    [`--max-old-space-size=${EXTRACTOR_HEAP_MB}`, helper, pdf, JSON.stringify(selectedPages)], {
     encoding: 'utf8', maxBuffer: 25 * 1024 * 1024, timeout: 60_000, windowsHide: true
   });
   if (child.error || child.status !== 0) {

@@ -130,9 +130,11 @@ function renderExtraction(setup) {
   elements.extractionPanel.hidden = pages.length === 0;
   elements.extractionPages.replaceChildren(...pages.map(page => {
     const li = document.createElement('li');
-    const statusLabel = page.status === 'failed' ? '추출 실패' : '추출 초안';
+    const textless = page.status !== 'failed' && page.hasText === false;
+    const statusLabel = page.status === 'failed' ? '추출 실패'
+      : textless ? '글자 없음(스캔 또는 빈 쪽)' : '추출 초안';
     li.textContent = `${page.pdfPageIndex}쪽 · ${statusLabel} · 원본 대조 필요`;
-    li.className = page.status;
+    li.className = textless ? 'textless' : page.status;
     return li;
   }));
 }
