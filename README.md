@@ -10,7 +10,7 @@
 
 `dist/Challenge-Master-Setup-0.5.0-win-x64.exe`가 시범용 설치파일이다. 설치하면 시작 메뉴의 **Challenge Master**로 연다. 학생이 Node.js나 Python을 따로 설치할 필요는 없다. 첫 화면에서 PDF, 추출할 시작·끝 페이지, 공부할 일과 가용 시간을 입력한다. 추출된 텍스트는 **원본 대조 필요** 상태로 남으며 검토 없이 학습 성과로 표시되지 않는다. 앱 화면의 **앱 종료**로 로컬 서버를 닫는다.
 
-학습 기록과 PDF 원본·추출 초안은 `%LOCALAPPDATA%\ChallengeMaster`에 평문으로 저장한다. 앱 제거는 기본적으로 이 개인 기록을 보존하며, 제거 화면에서 선택한 경우에만 삭제한다. 앱이나 폴더를 공유하기 전에 자신의 PDF와 학습 기록이 포함됐는지 확인해야 한다. 설치본은 현재 서명되지 않았고, 깨끗한 Windows 환경의 배포 검증은 남아 있다. 배포 판단은 [설치파일 배포 조건](docs/distribution.md)과 [v0.5 검증 기록](docs/verification-v0.5.md)을 따른다. 시범 운영은 [시범 운영 절차](docs/pilot/pilot-plan.md), [학생 설치 안내](docs/pilot/student-install-guide.md), [참여 동의서 초안](docs/pilot/consent-form.md)을 쓴다.
+학습 기록과 PDF 원본·추출 초안은 `%LOCALAPPDATA%\ChallengeMaster`에 평문으로 저장한다. 앱 제거는 기본적으로 이 개인 기록을 보존하며, 제거 화면에서 선택한 경우에만 삭제한다. 앱이나 폴더를 공유하기 전에 자신의 PDF와 학습 기록이 포함됐는지 확인해야 한다. 설치본은 현재 서명되지 않았고, 깨끗한 Windows 환경의 배포 검증은 남아 있다. 배포 판단은 [설치파일 배포 조건](docs/distribution.md)과 [v0.5 검증 기록](docs/verification-v0.5.md)을 따른다. 시범 운영은 [시범 운영 절차](docs/pilot/pilot-plan.md)과 [학생 설치 안내](docs/pilot/student-install-guide.md)를 쓴다. 설치파일은 구글 드라이브 공유 링크로 전달한다.
 
 개발자가 Windows x64에서 설치파일을 다시 만들려면 `npm run build:installer`를 실행한다. 빌드는 공식 Node.js·Python·pypdf·NSIS 배포물을 고정한 SHA-256으로 확인한 뒤 앱 전용 런타임을 묶는다. 생성물과 다운로드 캐시는 Git에서 제외한다. Node.js·Python이 없는 환경의 시험은 Windows 샌드박스 기능을 켠 뒤 `npm run test:sandbox`로 실행한다.
 
