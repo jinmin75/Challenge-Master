@@ -186,10 +186,13 @@ elements.taskSelect.addEventListener('change', syncMinutesLimit);
 
 elements.setupForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  // Collect the fields before run() disables every control: FormData skips disabled fields,
+  // so building it inside run() sent an empty upload from real browsers.
+  const body = new FormData(elements.setupForm);
   run(async () => {
     const response = await fetch('/api/setup', {
       method: 'POST',
-      body: new FormData(elements.setupForm),
+      body,
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? '설정을 저장하지 못했습니다.');
