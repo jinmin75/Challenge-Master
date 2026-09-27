@@ -7,11 +7,91 @@ const eventFields = {
   feedback_received: ['taskId', 'planVersion', 'text', 'sourceStatus'],
   notification_observed: ['notificationId', 'deliveryStatus', 'openedAt'],
   noncompletion_confirmed: ['taskId', 'planVersion', 'confirmed'],
+  // Calendar (v0.7, D019·D020): the learner reviews past days and schedules make-up time.
+  day_reviewed: ['date', 'status'],
+  late_progress_recorded: ['date', 'taskId', 'minutes', 'learnerConfirmed'],
+  makeup_scheduled: ['date', 'minutes', 'forDate'],
 };
+const dayReviewStatuses = new Set(['missed', 'rest']);
 
 export function emptyState() {
   return { schemaVersion: 1, events: [], currentPlan: null, plans: [], attempts: [],
-    progress: [], feedback: [], notifications: [], noncompletion: [] };
+    progress: [], feedback: [], notifications: [], noncompletion: [],
+    dayReviews: [], lateProgress: [], makeups: [] };
+}
+
+function calendarDate(value, field) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)
+    || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) throw new Error(`Invalid ${field}`);
+}
+
+// The learner's calendar day when the event was recorded. Calendar events carry a local-offset
+// timestamp (e.g. 2026-09-29T08:00:00+09:00), so the date part is the local day, not the UTC day.
+function eventDay(event) {
+  if (event.at.endsWith('Z')) throw new Error('Calendar events need a local-offset timestamp');
+  return event.at.slice(0, 10);
+}
+
+// A task's first estimate: the minutes it carried in the first plan that listed it.
+export function originalTaskMinutes(state, taskId) {
+  for (const plan of state.plans) {
+    const items = [...plan.allocations, ...plan.deferred].filter(item => item.taskId === taskId);
+    if (items.length > 0) return items.reduce((sum, item) => sum + item.minutes, 0);
+  }
+  return undefined;
+}
+
+// Everything credited against a task so far: same-day progress plus late (backfilled) progress.
+export function creditedTaskMinutes(state, taskId) {
+  const confirmed = state.progress.filter(item => item.taskId === taskId)
+    .reduce((sum, item) => sum + item.completedMinutes, 0);
+  const late = (state.lateProgress ?? []).filter(item => item.taskId === taskId)
+    .reduce((sum, item) => sum + item.minutes, 0);
+  return confirmed + late;
+}
+
+function creditedDates(state) {
+  const planDates = new Map(state.plans.map(plan => [plan.planVersion, plan.date]));
+  return new Set([
+    ...state.progress.map(item => planDates.get(item.planVersion)),
+    ...(state.lateProgress ?? []).map(item => item.date),
+  ]);
+}
+
+function validateCalendarEvent(event, state) {
+  if (!['day_reviewed', 'late_progress_recorded', 'makeup_scheduled'].includes(event.type)) return;
+  const today = eventDay(event);
+  if (event.type === 'day_reviewed') {
+    calendarDate(event.date, 'review date');
+    if (!dayReviewStatuses.has(event.status)) throw new Error('Invalid review status');
+    if (event.date >= today) throw new Error('Only past days can be reviewed');
+    if ((state.dayReviews ?? []).some(item => item.date === event.date)) throw new Error('Day already reviewed');
+    if (creditedDates(state).has(event.date)) throw new Error('Day already has study records');
+  }
+  if (event.type === 'late_progress_recorded') {
+    calendarDate(event.date, 'late progress date');
+    if (event.date >= today) throw new Error('Late progress is only for past days');
+    text(event.taskId, 'taskId');
+    if (event.learnerConfirmed !== true) throw new Error('Explicit learner confirmation required');
+    if (!Number.isSafeInteger(event.minutes) || event.minutes <= 0) throw new Error('Invalid late progress minutes');
+    if ((state.dayReviews ?? []).some(item => item.date === event.date)) {
+      throw new Error('Day was reviewed as missed or rest');
+    }
+    const original = originalTaskMinutes(state, event.taskId);
+    if (original === undefined) throw new Error('Unknown task or plan version');
+    if (creditedTaskMinutes(state, event.taskId) + event.minutes > original) {
+      throw new Error('Late progress exceeds the remaining task estimate');
+    }
+  }
+  if (event.type === 'makeup_scheduled') {
+    calendarDate(event.date, 'make-up date');
+    calendarDate(event.forDate, 'missed date');
+    if (event.date <= today) throw new Error('Make-up time is only for future days');
+    if (!Number.isSafeInteger(event.minutes) || event.minutes <= 0) throw new Error('Invalid make-up minutes');
+    if (!(state.dayReviews ?? []).some(item => item.date === event.forDate && item.status === 'missed')) {
+      throw new Error('Make-up requires a day reviewed as missed');
+    }
+  }
 }
 
 function text(value, field, maximum = 1000) {
@@ -107,7 +187,13 @@ export function applyEvent(state, event) {
     if (alreadyCompleted + event.completedMinutes > assigned) {
       throw new Error('Confirmed progress exceeds plan allocation');
     }
+    // Late progress may already cover part of this task; the total never exceeds the estimate.
+    const original = originalTaskMinutes(state, event.taskId);
+    if (original !== undefined && creditedTaskMinutes(state, event.taskId) + event.completedMinutes > original) {
+      throw new Error('Confirmed progress exceeds the remaining task estimate');
+    }
   }
+  validateCalendarEvent(event, state);
   if (event.type === 'feedback_received') {
     text(event.text, 'feedback text', 50000);
     if (!['ready', 'needs_review', 'unknown', 'conflict'].includes(event.sourceStatus)) throw new Error('Invalid source status');
@@ -138,6 +224,9 @@ export function applyEvent(state, event) {
     }
     case 'notification_observed': next.notifications.push(saved); break;
     case 'noncompletion_confirmed': next.noncompletion.push(saved); break;
+    case 'day_reviewed': (next.dayReviews ??= []).push(saved); break;
+    case 'late_progress_recorded': (next.lateProgress ??= []).push(saved); break;
+    case 'makeup_scheduled': (next.makeups ??= []).push(saved); break;
   }
   return next;
 }

@@ -8,6 +8,7 @@ import { planFromProgress } from './replan.mjs';
 import { planWeek } from './weekly.mjs';
 import { readStore, appendToStore } from './store.mjs';
 import { convertPdf } from './pdf.mjs';
+import { handleCalendarApi, localDate, makeupMinutesOn, withLateCredit } from './calendar-api.mjs';
 
 const defaultInputPath = resolve(import.meta.dirname, '../fixtures/synthetic-plan.json');
 const defaultWebRoot = resolve(import.meta.dirname, '../web');
@@ -130,12 +131,15 @@ function parseMinutes(value, field, { allowZero = false } = {}) {
   return value;
 }
 
-function planInputFor(requestBody, baseInput) {
+function planInputFor(requestBody, baseInput, state = null) {
   const input = clone(baseInput);
   input.date = localDateIso();
   if (requestBody && Object.hasOwn(requestBody, 'date')) input.date = requestBody.date;
   if (requestBody && Object.hasOwn(requestBody, 'availableMinutes')) {
     input.availableMinutes = parseMinutes(requestBody.availableMinutes, 'availableMinutes', { allowZero: true });
+  } else if (state) {
+    // Make-up time the learner chose for this date (D020) adds to the usual daily time.
+    input.availableMinutes += makeupMinutesOn(state, input.date);
   }
   if (requestBody && Object.hasOwn(requestBody, 'rest')) input.rest = requestBody.rest === true;
   return input;
@@ -187,20 +191,25 @@ function weeklyDaysFor(baseInput, state) {
     availableMinutes: current.availableMinutes,
     rest: current.allocatableMinutes === 0 && current.deferred.some(item => item.reason === 'rest_day'),
   } : day;
+  // Make-up time counts on future days; today's current plan already includes it.
+  const withMakeup = day => {
+    const extra = current?.date === day.date ? 0 : makeupMinutesOn(state, day.date);
+    return extra === 0 ? day : { ...day, availableMinutes: day.availableMinutes + extra, rest: false };
+  };
   if (Array.isArray(baseInput.weekDays) && baseInput.weekDays.length > 0) {
-    return baseInput.weekDays.filter(day => day.date >= today).map(day => applyCurrentPlan({
+    return baseInput.weekDays.filter(day => day.date >= today).map(day => withMakeup(applyCurrentPlan({
       date: day.date,
       availableMinutes: day.availableMinutes ?? baseInput.availableMinutes,
       rest: day.rest ?? false,
-    }));
+    })));
   }
   const start = current?.date && current.date > today
     ? new Date(`${current.date}T00:00:00`)
     : new Date();
-  return Array.from({ length: 7 }, (_, index) => applyCurrentPlan({
+  return Array.from({ length: 7 }, (_, index) => withMakeup(applyCurrentPlan({
     date: localDateIso(addLocalDays(start, index)),
     availableMinutes: baseInput.availableMinutes,
-  }));
+  })));
 }
 
 function weeklyForecastFor(baseInput, state) {
@@ -209,7 +218,7 @@ function weeklyForecastFor(baseInput, state) {
     tasks: clone(baseInput.tasks),
     nextTwoDaysReviewMinutes: baseInput.nextTwoDaysReviewMinutes ?? null,
     planVersion: (state.currentPlan?.planVersion ?? 0) + 1,
-  }, state);
+  }, withLateCredit(state));
 }
 
 function summarizeState(state, baseInput) {
@@ -227,6 +236,7 @@ function summarizeState(state, baseInput) {
     rawCurrentPlan: state.currentPlan,
     eventCount: state.events.length,
     confirmedProgressMinutes: confirmedMinutes,
+    lateProgressMinutes: (state.lateProgress ?? []).reduce((sum, item) => sum + item.minutes, 0),
     attempts: state.attempts.map(item => ({
       taskId: item.taskId,
       evidenceType: item.evidenceType,
@@ -840,9 +850,9 @@ export function createServer({
     }
     if (request.method === 'POST' && url.pathname === '/api/start') {
       const state = appendToStore(storeFile, before => {
-        const input = planInputFor(body, baseInput);
+        const input = planInputFor(body, baseInput, before);
         const plan = before.currentPlan
-          ? planFromProgress(input, before)
+          ? planFromProgress(input, withLateCredit(before))
           : planDay({ ...input, planVersion: 1 });
         return { ...eventBase('plan_created'), plan };
       });
@@ -895,7 +905,7 @@ export function createServer({
         if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
         return {
           ...eventBase('plan_created'),
-          plan: planFromProgress(planInputFor({ ...body, availableMinutes }, baseInput), before),
+          plan: planFromProgress(planInputFor({ ...body, availableMinutes }, baseInput), withLateCredit(before)),
         };
       });
       sendJson(response, 200, apiStatus(state, runtime));
@@ -906,7 +916,7 @@ export function createServer({
         return {
           ...eventBase('plan_created'),
           plan: before.currentPlan
-            ? planFromProgress(planInputFor({ ...body, rest: true }, baseInput), before)
+            ? planFromProgress(planInputFor({ ...body, rest: true }, baseInput), withLateCredit(before))
             : planDay({ ...planInputFor({ ...body, rest: true }, baseInput), planVersion: 1 }),
         };
       });
@@ -926,6 +936,15 @@ export function createServer({
       sendJson(response, 200, apiStatus(state, runtime));
       return;
     }
+    const handled = await handleCalendarApi({
+      request, url, body, storeFile,
+      dailyMinutes: baseInput.availableMinutes,
+      startDate: runtime.setup?.source?.uploadedAt ? localDate(new Date(runtime.setup.source.uploadedAt)) : null,
+      forecastFor: state => weeklyForecastFor(baseInput, state),
+      status: state => apiStatus(state, runtime),
+      send: (code, value) => sendJson(response, code, value),
+    });
+    if (handled) return;
     sendJson(response, 404, { error: '지원하지 않는 API 경로입니다.' });
   }
 

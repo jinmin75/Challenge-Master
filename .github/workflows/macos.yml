@@ -25,6 +25,13 @@ jobs:
       - run: npm ci --omit=optional
       - run: npm test
       - run: npm run check
+      # L25: the calendar in real Chrome (preinstalled on hosted runners). playwright-core stays out of
+      # package.json so the app package never carries it.
+      - name: Browser calendar check
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save playwright-core@1.63.0
+          PLAYWRIGHT_CORE="$RUNNER_TEMP/pw/node_modules/playwright-core" node scripts/browser-calendar.mjs
 
   macos-app:
     needs: unit-tests

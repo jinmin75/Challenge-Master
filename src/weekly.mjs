@@ -160,7 +160,8 @@ function observedProgress(progress, plans, startDate) {
     if (typeof event.taskId !== 'string' || event.taskId.length === 0) throw new TypeError('progress taskId is required');
     validateMinute(event.completedMinutes, `completedMinutes for ${event.taskId}`);
     totals.set(event.taskId, (totals.get(event.taskId) ?? 0) + event.completedMinutes);
-    const date = planDates.get(event.planVersion);
+    // Late (backfilled) progress carries its own date; same-day progress takes its plan's date.
+    const date = event.date ?? planDates.get(event.planVersion);
     const bucket = date === undefined || date < startDate ? preWeek : mapForDate(byDate, date);
     bucket.set(event.taskId, (bucket.get(event.taskId) ?? 0) + event.completedMinutes);
   }

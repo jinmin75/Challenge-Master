@@ -132,6 +132,36 @@
       <ol id="weekAllocations"></ol>
       <p id="weekWarning" class="warning"></p>
     </section>
+
+    <section class="panel calendar" id="calendarPanel">
+      <div class="cal-head">
+        <h2 id="calendarTitle">학습 캘린더</h2>
+        <div class="cal-nav">
+          <button id="calendarPrev" class="secondary" type="button">◀ 이전 달</button>
+          <button id="calendarNext" class="secondary" type="button">다음 달 ▶</button>
+        </div>
+      </div>
+      <div id="calendarGrid" class="cal"></div>
+      <div class="legend">
+        <span class="lg-recorded">기록 있음</span><span class="lg-needs_review">확인 필요(기록 없음)</span>
+        <span class="lg-missed">누락 확인</span><span class="lg-late">사후 기록</span>
+        <span class="lg-rest">휴식·등록 전</span><span class="lg-makeup">보완 예정일</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel" id="dayPanel">
+        <h2 id="dayTitle">날짜를 누르면 그날의 기록이 보입니다</h2>
+        <div id="dayBody"></div>
+      </div>
+      <div class="panel" id="monthPanel">
+        <h2 id="monthTitle">이번 달 점검 (한 달)</h2>
+        <div id="monthStats" class="stats"></div>
+        <h3 class="sub">확인이 필요한 날</h3>
+        <ul id="needsReviewList" class="todo-list"></ul>
+        <div id="calendarSignals"></div>
+      </div>
+    </section>
   </main>
   <script type="module" src="/app.js"></script>
 </body>

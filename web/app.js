@@ -1,3 +1,5 @@
+import { createCalendar } from '/calendar.js';
+
 const elements = {
   recommendation: document.querySelector('#recommendation'),
   contract: document.querySelector('#contract'),
@@ -105,6 +107,7 @@ function render(status) {
     unknown: '전체 범위 미확인' })[plan?.goalCoverageStatus] ?? '-';
   elements.warning.textContent = plan?.warning ?? '';
   renderWeek(status.weeklyForecast, status.weeklyForecastError);
+  calendar.update(status.calendar).catch(showError);
 
   visibleAllocations = plan?.allocations ?? [];
   elements.taskSelect.replaceChildren(...visibleAllocations.map(optionFor));
@@ -224,6 +227,8 @@ elements.restButton.addEventListener('click', () => {
 elements.skipButton.addEventListener('click', () => {
   run(() => api('/api/skip', { taskId: elements.taskSelect.value }));
 });
+
+const calendar = createCalendar({ api, run, today: localDateIso });
 
 refresh().catch(error => {
   showError(error);

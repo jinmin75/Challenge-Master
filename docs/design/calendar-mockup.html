@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>시안: 학습 캘린더와 월간 점검</title>
+<link rel="stylesheet" href="../../web/styles.css">
+<style>
+  .mock-note { background: #fff4e5; border: 1px solid #f5cd8a; border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+  .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .cal-head h2 { margin: 0; font-size: 20px; }
+  .cal-nav button { margin-left: 6px; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .dow { font-size: 12px; color: #5b6475; text-align: center; padding-bottom: 2px; }
+  .day { min-height: 76px; border-radius: 6px; padding: 6px; font-size: 12px; border: 1px solid #d9decf; background: #fff; }
+  .day .n { font-weight: 700; font-size: 13px; }
+  .day .m { margin-top: 5px; line-height: 1.35; }
+  .bar { height: 6px; border-radius: 3px; background: #e6e8e1; margin-top: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: #25665a; }
+  .done { background: #f1f8f5; border-color: #9cc9bb; }
+  .rest { background: #f2f3f5; color: #5b6475; }
+  .none { border-style: dashed; border-color: #c9a35a; background: #fffaf0; }
+  .missed { background: #fdf0ef; border-color: #e3a29c; }
+  .late { background: #eef3fb; border-color: #9db8e3; }
+  .future { background: #fbfbfa; color: #5b6475; }
+  .makeup { background: #fbfbfa; border: 2px solid #25665a; }
+  .today { outline: 2px solid #1d2433; outline-offset: 1px; }
+  .out { visibility: hidden; }
+  .sel { box-shadow: 0 0 0 3px #0052cc66; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 3px; background: #25665a; color: #fff; margin-top: 3px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; margin-top: 10px; color: #3b4456; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; border: 1px solid #c8cdbf; }
+  .lg-done::before { background: #f1f8f5 !important; border-color: #9cc9bb !important; }
+  .lg-none::before { background: #fffaf0 !important; border: 1px dashed #c9a35a !important; }
+  .lg-missed::before { background: #fdf0ef !important; border-color: #e3a29c !important; }
+  .lg-late::before { background: #eef3fb !important; border-color: #9db8e3 !important; }
+  .lg-rest::before { background: #f2f3f5 !important; }
+  .lg-makeup::before { background: #fbfbfa !important; border: 2px solid #25665a !important; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 12px; }
+  .stat { border: 1px solid #d9decf; border-radius: 6px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 19px; }
+  .stat small { color: #5b6475; }
+  .todo { border: 1px solid #e3c98f; background: #fffaf0; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .sig { border-left: 4px solid #25665a; background: #f1f8f5; padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-size: 14px; }
+  .sig b { display: block; margin-bottom: 2px; }
+  .choice { border: 1px solid #d9decf; border-radius: 6px; padding: 10px 12px; margin: 8px 0; }
+  .choice h3 { margin: 0 0 4px; font-size: 15px; }
+  .choice p { margin: 0 0 8px; font-size: 13px; color: #3b4456; }
+  .row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+  .row label { font-size: 13px; }
+  .stack > * + * { margin-top: 16px; }
+  .step-no { display: inline-block; width: 20px; height: 20px; border-radius: 50%; background: #0052cc; color: #fff; text-align: center; font-size: 12px; line-height: 20px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main class="stack">
+  <div class="mock-note"><b>시안 2판(동작하지 않는 그림)</b> · 숫자와 날짜는 예시입니다. 한 달 단위 점검, 학생의 누락 확인과 보완 처리를 넣었습니다. 기존 기록은 그대로 읽고, 누락 확인·사후 기록·보완 계획만 새 기록으로 더합니다. <b>승인 뒤 변경(D020):</b> 보완 한도는 「절반」이 아니라 하루 공부 시간까지입니다.</div>
+
+  <section class="panel">
+    <div class="cal-head">
+      <h2>학습 캘린더 · 2026년 9월</h2>
+      <div class="cal-nav"><button type="button">◀ 이전 달</button><button type="button">다음 달 ▶</button></div>
+    </div>
+    <div class="cal">
+      <div class="dow">일</div><div class="dow">월</div><div class="dow">화</div><div class="dow">수</div><div class="dow">목</div><div class="dow">금</div><div class="dow">토</div>
+      <div class="day out"></div><div class="day out"></div>
+      <div class="day rest"><div class="n">1</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">2</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">3</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">4</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">5</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">6</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">7</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">8</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">9</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">10</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">11</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">12</div><div class="m">등록 전</div></div>
+      <div class="day rest"><div class="n">13</div><div class="m">등록 전</div></div>
+      <div class="day done"><div class="n">14</div><div class="m">확인 50 / 54분</div><div class="bar"><i style="width:93%"></i></div></div>
+      <div class="day done"><div class="n">15</div><div class="m">확인 54 / 54분</div><div class="bar"><i style="width:100%"></i></div></div>
+      <div class="day missed"><div class="n">16</div><div class="m">누락 확인<br>보완 완료</div></div>
+      <div class="day done"><div class="n">17</div><div class="m">확인 30 / 54분<br>줄임</div><div class="bar"><i style="width:56%"></i></div></div>
+      <div class="day done"><div class="n">18</div><div class="m">확인 54 / 54분</div><div class="bar"><i style="width:100%"></i></div></div>
+      <div class="day rest"><div class="n">19</div><div class="m">휴식(계획)</div></div>
+      <div class="day rest"><div class="n">20</div><div class="m">휴식(계획)</div></div>
+      <div class="day done"><div class="n">21</div><div class="m">확인 40 / 54분<br>건너뜀 1</div><div class="bar"><i style="width:74%"></i></div></div>
+      <div class="day late"><div class="n">22</div><div class="m">사후 기록 40분<br>(학생 확인)</div></div>
+      <div class="day none sel"><div class="n">23</div><div class="m">확인 필요</div></div>
+      <div class="day done"><div class="n">24</div><div class="m">확인 20 / 54분</div><div class="bar"><i style="width:37%"></i></div></div>
+      <div class="day done"><div class="n">25</div><div class="m">확인 54 / 54분</div><div class="bar"><i style="width:100%"></i></div></div>
+      <div class="day done"><div class="n">26</div><div class="m">확인 45 / 54분</div><div class="bar"><i style="width:83%"></i></div></div>
+      <div class="day rest"><div class="n">27</div><div class="m">오늘 쉬기</div></div>
+      <div class="day done today"><div class="n">28 · 오늘</div><div class="m">확인 20 / 54분</div><div class="bar"><i style="width:37%"></i></div></div>
+      <div class="day future"><div class="n">29</div><div class="m">예정 54분</div></div>
+      <div class="day makeup"><div class="n">30</div><div class="m">예정 54분</div><span class="tag">보완 +20분</span></div>
+      <div class="day out"></div><div class="day out"></div><div class="day out"></div><div class="day out"></div>
+    </div>
+    <div class="legend"><span class="lg-done">기록 있음</span><span class="lg-none">확인 필요(기록 없음)</span><span class="lg-missed">누락 확인</span><span class="lg-late">사후 기록</span><span class="lg-rest">휴식·등록 전</span><span class="lg-makeup">보완 예정일</span></div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <h2>9월 23일 (수) · 확인 필요</h2>
+      <p style="font-size:14px;color:#3b4456;margin-top:0">이날은 배정 54분이 있었지만 공부 기록이 없습니다. 기록이 없는 날을 공부하지 않은 날로 보지 않으므로, 어떤 날이었는지 직접 확인해 주세요.</p>
+
+      <div class="choice">
+        <h3><span class="step-no">1</span>공부했지만 기록을 못 했어요</h3>
+        <p>한 과업과 공부한 분을 적으면 「사후 기록」으로 남습니다.</p>
+        <div class="row">
+          <label>과업<br><select><option>1장 교육철학 핵심 개념</option></select></label>
+          <label>공부한 분<br><input type="number" value="30" style="width:80px"></label>
+          <button type="button">사후 기록</button>
+        </div>
+      </div>
+
+      <div class="choice">
+        <h3><span class="step-no">2</span>공부하지 못했어요</h3>
+        <p>「누락 확인」으로 남기고, 빠진 분량을 채울 보완 계획을 고릅니다.</p>
+        <div class="row">
+          <label>보완할 날<br><select><option>9월 30일 (수)</option><option>10월 3일 (토)</option></select></label>
+          <label>더할 시간(분)<br><input type="number" value="20" style="width:80px"></label>
+          <button type="button">누락 확인 + 보완 계획</button>
+        </div>
+        <p style="margin-top:6px">보완할 날의 공부 시간은 하루 공부 시간의 절반(27분)까지만 늘릴 수 있습니다. 보완 없이 「누락 확인만」 할 수도 있으며, 그 경우 빠진 분량은 앞으로의 계획에 나눠 들어갑니다.</p>
+        <button type="button">누락 확인만</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>9월 점검 (한 달)</h2>
+      <div class="stats">
+        <div class="stat"><b>11일</b><small>기록한 날</small></div>
+        <div class="stat"><b>3일</b><small>휴식</small></div>
+        <div class="stat"><b>1일</b><small>확인 필요</small></div>
+        <div class="stat"><b>1일</b><small>누락 확인</small></div>
+        <div class="stat"><b>40분</b><small>사후 기록</small></div>
+        <div class="stat"><b>20분</b><small>보완 예정</small></div>
+      </div>
+      <h3 style="font-size:15px;margin:10px 0 4px">확인이 필요한 날</h3>
+      <div class="todo"><span>9월 23일 (수) · 배정 54분, 기록 없음</span><button type="button">확인하기</button></div>
+      <div class="sig"><b>배정 492분 중 352분을 확인했습니다</b>사후 기록 40분은 따로 셉니다. 이 숫자는 계획을 따른 양이며 실력이나 합격 가능성을 뜻하지 않습니다.</div>
+      <div class="sig"><b>복습이 밀리고 있습니다</b>확인·교정 과업 2개가 원래 날짜보다 늦어졌습니다. 앞으로 7일 안에 배정되어 있습니다.</div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
