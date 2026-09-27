@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createServer, startServer } from '../src/web.mjs';
+import { createServer, startServer, studentPdfError } from '../src/web.mjs';
 import { readStore } from '../src/store.mjs';
 
 const planInput = {
@@ -515,7 +515,7 @@ test('student setup removes a newly saved PDF when extraction fails', async () =
     const response = await fetch(`${baseUrl}/api/setup`, { method: 'POST', body: form });
     const data = await response.json();
     assert.equal(response.status, 400);
-    assert.match(data.error, /page outside PDF/);
+    assert.match(data.error, /끝 페이지가 PDF의 전체 쪽수보다 큽니다/);
     assert.equal(existsSync(configFile), false);
     assert.deepEqual(existsSync(sourceDir) ? readdirSync(sourceDir) : [], []);
   }, { pdfConverter: () => {
@@ -605,7 +605,7 @@ test('failed replacement extraction keeps the previous setup and current plan', 
     });
     const failed = await response.json();
     assert.equal(response.status, 400);
-    assert.match(failed.error, /page outside PDF/);
+    assert.match(failed.error, /끝 페이지가 PDF의 전체 쪽수보다 큽니다/);
     assert.equal(readFileSync(configFile, 'utf8'), beforeConfig);
     assert.equal(readFileSync(storeFile, 'utf8'), beforeStore);
 
@@ -1036,4 +1036,12 @@ test('quit endpoint is localhost guarded and closes the local server', async () 
     await closed;
     assert.equal(server.listening, false);
   });
+});
+
+test('extractor errors reach the student in Korean', () => {
+  assert.match(studentPdfError('PDF extraction failed: page outside PDF'), /끝 페이지가 PDF의 전체 쪽수보다 큽니다/);
+  assert.equal(studentPdfError('PDF extraction failed: encrypted PDF is not supported'), '암호가 걸린 PDF는 등록할 수 없습니다.');
+  assert.match(studentPdfError('PDF extraction failed: cannot open PDF: bad xref'), /PDF 파일을 열 수 없습니다/);
+  assert.match(studentPdfError('input is not a PDF'), /PDF 파일을 열 수 없습니다/);
+  assert.equal(studentPdfError('something unexpected'), 'PDF에서 글자를 뽑아내지 못했습니다. (something unexpected)');
 });

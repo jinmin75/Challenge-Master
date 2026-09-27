@@ -378,6 +378,19 @@ function safeOriginalName(filename) {
   return name.toLowerCase().endsWith('.pdf') ? name : `${name}.pdf`;
 }
 
+// The extractor reports in English; students see these messages directly on the setup screen.
+export function studentPdfError(message = '') {
+  if (message.includes('page outside PDF')) {
+    return '끝 페이지가 PDF의 전체 쪽수보다 큽니다. PDF 뷰어에서 전체 쪽수를 확인한 뒤 다시 입력해 주세요.';
+  }
+  if (message.includes('encrypted PDF')) return '암호가 걸린 PDF는 등록할 수 없습니다.';
+  if (message.includes('cannot open PDF') || message.includes('not a PDF')) {
+    return 'PDF 파일을 열 수 없습니다. 파일이 손상되지 않았는지 확인해 주세요.';
+  }
+  if (message.includes('exceeds 50 MiB')) return 'PDF 파일이 너무 큽니다.';
+  return `PDF에서 글자를 뽑아내지 못했습니다. (${message})`;
+}
+
 function buildSetup({ parts, sourceDir, draftDir, pdfConverter = convertPdf }) {
   const file = parts.get('pdf');
   if (!file || !file.filename || file.data.length === 0) throw new Error('PDF 파일을 선택해 주세요.');
@@ -408,7 +421,7 @@ function buildSetup({ parts, sourceDir, draftDir, pdfConverter = convertPdf }) {
     });
   } catch (error) {
     cleanupFile(storedFile);
-    throw error;
+    throw new Error(studentPdfError(error.message), { cause: error });
   }
   const manifestFile = join(draftDir, `${sourceId}.manifest.json`);
   const draftFile = join(draftDir, `${sourceId}.draft.md`);
