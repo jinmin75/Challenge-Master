@@ -4,19 +4,19 @@
 
 학생이 보유 자료와 학습 범위를 정하면, 자신의 LLM 계정과 개인 Wiki를 이용해 공부할 방향을 잡고 연속 학습·답안 연습·교정을 진행한다. 학습 기록을 남기고 가용 시간 안에서 다음 일정을 조정하는 시스템을 목표로 한다.
 
-**현재 상태: 설계 v4.2 + Windows 시범 설치본 v0.5.** 다음 목표는 학생 2~3명의 시범 사용이다. 실제 PDF의 선택 페이지에서 텍스트 초안을 만들고, 로컬 화면에서 계획·공부 시간·주간 예측을 사용할 수 있다. 설치본은 앱 전용 Node.js·Python·pypdf를 포함하며, 제거할 때 개인 기록 삭제 여부를 고를 수 있다. 개발 PC와 Node.js·Python이 없는 Windows 샌드박스에서 설치·반입·재시작·제거를 확인했다. 코드 서명, 스캔 OCR·LLM 계정 연결, 실제 학생 사용성과 학습효과는 아직 검증하지 않았다.
+**현재 상태: 설계 v4.2 + Windows·macOS 시범판 v0.6.** 다음 목표는 학생 2~3명의 시범 사용이며 Mac 사용자도 포함한다. 실제 PDF의 선택 페이지에서 pdf.js로 텍스트 초안을 만들고, 로컬 화면에서 계획·공부 시간·주간 예측을 사용할 수 있다. Windows 설치본과 macOS 앱은 앱 전용 Node.js와 pdf.js를 포함한다. Windows 설치본은 개발 PC와 Node.js·Python이 없는 Windows 샌드박스에서, macOS 앱은 GitHub의 Apple Silicon·Intel macOS 환경에서 설치·반입·재시작을 확인했다. 실제 Mac 기기에서의 학생 사용은 아직 관찰하지 않았다. 코드 서명, 스캔 OCR·LLM 계정 연결, 실제 학생 사용성과 학습효과는 아직 검증하지 않았다.
 
 ## Windows 설치본
 
-`dist/Challenge-Master-Setup-0.5.0-win-x64.exe`가 시범용 설치파일이다. 설치하면 시작 메뉴의 **Challenge Master**로 연다. 학생이 Node.js나 Python을 따로 설치할 필요는 없다. 첫 화면에서 PDF, 추출할 시작·끝 페이지, 공부할 일과 가용 시간을 입력한다. 추출된 텍스트는 **원본 대조 필요** 상태로 남으며 검토 없이 학습 성과로 표시되지 않는다. 앱 화면의 **앱 종료**로 로컬 서버를 닫는다.
+`dist/Challenge-Master-Setup-0.6.0-win-x64.exe`가 Windows 시범용 설치파일이다. 설치하면 시작 메뉴의 **Challenge Master**로 연다. 학생이 Node.js 등을 따로 설치할 필요는 없다. macOS 앱(`Challenge-Master-0.6.0-macos.zip`)은 GitHub Actions의 `packages` 실행 결과물로 받으며, 서명·공증이 없어 처음 한 번 시스템 설정에서 허용해야 한다([Mac 안내](docs/pilot/student-install-guide-mac.md)). 첫 화면에서 PDF, 추출할 시작·끝 페이지, 공부할 일과 가용 시간을 입력한다. 추출된 텍스트는 **원본 대조 필요** 상태로 남으며 검토 없이 학습 성과로 표시되지 않는다. 앱 화면의 **앱 종료**로 로컬 서버를 닫는다.
 
 학습 기록과 PDF 원본·추출 초안은 `%LOCALAPPDATA%\ChallengeMaster`에 평문으로 저장한다. 앱 제거는 기본적으로 이 개인 기록을 보존하며, 제거 화면에서 선택한 경우에만 삭제한다. 앱이나 폴더를 공유하기 전에 자신의 PDF와 학습 기록이 포함됐는지 확인해야 한다. 설치본은 현재 서명되지 않았고, 깨끗한 Windows 환경의 배포 검증은 남아 있다. 배포 판단은 [설치파일 배포 조건](docs/distribution.md)과 [v0.5 검증 기록](docs/verification-v0.5.md)을 따른다. 시범 운영은 [시범 운영 절차](docs/pilot/pilot-plan.md)과 [학생 설치 안내](docs/pilot/student-install-guide.md)를 쓴다. 설치파일은 구글 드라이브 공유 링크로 전달한다.
 
-개발자가 Windows x64에서 설치파일을 다시 만들려면 `npm run build:installer`를 실행한다. 빌드는 공식 Node.js·Python·pypdf·NSIS 배포물을 고정한 SHA-256으로 확인한 뒤 앱 전용 런타임을 묶는다. 생성물과 다운로드 캐시는 Git에서 제외한다. Node.js·Python이 없는 환경의 시험은 Windows 샌드박스 기능을 켠 뒤 `npm run test:sandbox`로 실행한다(명령줄 도구 `wsb` 필요).
+개발자가 Windows x64에서 설치파일을 다시 만들려면 `npm run build:installer`를 실행한다. 빌드는 공식 Node.js·NSIS 배포물을 고정한 SHA-256으로 확인한 뒤 앱 전용 런타임과 pdf.js를 묶는다. macOS 앱은 macOS에서 `npm run build:macos`로 만들며, 저장소에 올리면 GitHub Actions가 빌드와 시험을 자동으로 돌린다. 생성물과 다운로드 캐시는 Git에서 제외한다. Node.js·Python이 없는 환경의 시험은 Windows 샌드박스 기능을 켠 뒤 `npm run test:sandbox`로 실행한다(명령줄 도구 `wsb` 필요).
 
 ## 로컬 실행
 
-개발 실행에는 Node.js 22 이상이 필요하다. PDF 텍스트 추출에는 Python 3과 `pypdf`가 추가로 필요하다. 이번 개발 환경은 Node.js 25.6.1, Python 3.12, pypdf 6.17.0이다. 설치본은 별도의 앱 전용 런타임을 사용한다. 계정 인증과 외부 모델 호출은 현재 흐름에 없다.
+개발 실행에는 Node.js 22.13 이상과 `npm ci --omit=optional`로 설치한 pdf.js가 필요하다. 구글 드라이브처럼 동기화되는 폴더에서는 npm이 빈 파일을 남길 수 있으므로, 로컬 폴더에 설치한 `node_modules`를 복사하거나 `CHALLENGE_MASTER_PDFJS_DIR`로 pdf.js 위치를 지정한다. 설치본은 별도의 앱 전용 런타임을 사용한다. 계정 인증과 외부 모델 호출은 현재 흐름에 없다.
 
 ```sh
 npm test

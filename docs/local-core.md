@@ -64,7 +64,7 @@ nextTwoDaysReviewMinutes를 주면 그 복습 예산과 부채를 비교한다. 
 
 ## 자료 반입 계약
 
-`src/ingest.mjs`는 변환 결과 계약이다. `src/pdf.mjs`와 `scripts/pdf_extract.py`가 로컬 PDF의 선택 페이지에서 텍스트를 추출하고 원본 SHA-256을 계산한다. 개발 환경에는 Python 3과 pypdf가 필요하다. 데모 명령은 여전히 합성 Markdown을 사용한다. 페이지는 1부터 시작하며 선택 목록은 중복 없이 오름차순이다.
+`src/ingest.mjs`는 변환 결과 계약이다. `src/pdf.mjs`가 원본 SHA-256을 계산하고, 별도 Node 프로세스로 띄운 `src/pdf-extract.mjs`가 pdf.js로 로컬 PDF의 선택 페이지에서 텍스트를 추출한다. 개발 환경에는 `npm ci --omit=optional`로 설치한 pdf.js가 필요하다. 데모 명령은 여전히 합성 Markdown을 사용한다. 페이지는 1부터 시작하며 선택 목록은 중복 없이 오름차순이다.
 
 `node src/cli.mjs pdf <source.pdf> <metadata.json>`은 원본을 읽고 `private/ingest/` 아래에 추출 초안과 검토 템플릿을 저장한다. metadata 예시:
 
