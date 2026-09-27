@@ -45,6 +45,12 @@ jobs:
       - run: node scripts/build-macos.mjs
       - name: Smoke test on Apple Silicon
         run: node scripts/smoke-macos.mjs dist/Challenge-Master-*-macos.zip
+      - name: Student flow in real Chrome on Apple Silicon
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save playwright-core@1.63.0
+          mkdir -p "$RUNNER_TEMP/app" && ditto -x -k dist/Challenge-Master-*-macos.zip "$RUNNER_TEMP/app"
+          export CHALLENGE_MASTER_FOREGROUND=1 PLAYWRIGHT_CORE="$RUNNER_TEMP/pw/node_modules/playwright-core"
+          node scripts/browser-installed.mjs "$RUNNER_TEMP/app/Challenge Master.app/Contents/MacOS/challenge-master" --no-browser
       - uses: actions/upload-artifact@v7
         with:
           name: challenge-master-macos
@@ -67,3 +73,9 @@ jobs:
           path: dist
       - name: Smoke test the same zip on an Intel Mac
         run: node scripts/smoke-macos.mjs dist/Challenge-Master-*-macos.zip
+      - name: Student flow in real Chrome on an Intel Mac
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save playwright-core@1.63.0
+          mkdir -p "$RUNNER_TEMP/app" && ditto -x -k dist/Challenge-Master-*-macos.zip "$RUNNER_TEMP/app"
+          export CHALLENGE_MASTER_FOREGROUND=1 PLAYWRIGHT_CORE="$RUNNER_TEMP/pw/node_modules/playwright-core"
+          node scripts/browser-installed.mjs "$RUNNER_TEMP/app/Challenge Master.app/Contents/MacOS/challenge-master" --no-browser

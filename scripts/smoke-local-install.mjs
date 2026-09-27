@@ -23,6 +23,18 @@ const root = join(tmpdir(), 'ChallengeMasterInstallerSmoke');
 assert.ok(!root.includes(' '), 'NSIS /D= takes an unquoted path');
 const setup = spawnSync(installer, ['/S', `/D=${root}`], { stdio: 'inherit' });
 assert.equal(setup.status, 0, `Installer exited with ${setup.status}`);
+// With PLAYWRIGHT_CORE set, also drive the installed app in real Chrome before the uninstall check.
+if (process.env.PLAYWRIGHT_CORE) {
+  const { browserCheckInstalled } = await import('./browser-installed.mjs');
+  const system = process.env.SystemRoot ?? 'C:\\Windows';
+  const result = await browserCheckInstalled({
+    command: join(root, 'runtime', 'node', 'node.exe'),
+    args: [join(root, 'app', 'src', 'desktop.mjs'), '--no-browser'],
+    cwd: join(root, 'app'),
+    env: { ...process.env, PATH: `${system}\\System32;${system}` },
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
 const smoke = spawnSync(process.execPath, [join(import.meta.dirname, 'smoke-installer.mjs'), root, '--uninstall'],
   { stdio: 'inherit' });
 process.exit(smoke.status ?? 1);
