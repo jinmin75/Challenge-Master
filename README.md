@@ -4,11 +4,11 @@
 
 학생이 보유 자료와 학습 범위를 정하면, 자신의 LLM 계정과 개인 Wiki를 이용해 공부할 방향을 잡고 연속 학습·답안 연습·교정을 진행한다. 학습 기록을 남기고 가용 시간 안에서 다음 일정을 조정하는 시스템을 목표로 한다.
 
-**현재 상태: 설계 v4.2 + Windows·macOS 시범판 v0.6.2.** 다음 목표는 학생 2~3명의 시범 사용이며 Mac 사용자도 포함한다. 실제 PDF의 선택 페이지에서 pdf.js로 텍스트 초안을 만들고, 로컬 화면에서 계획·공부 시간·주간 예측을 사용할 수 있다. Windows 설치본과 macOS 앱은 앱 전용 Node.js와 pdf.js를 포함한다. Windows 설치본은 개발 PC와 Node.js·Python이 없는 Windows 샌드박스에서, macOS 앱은 GitHub의 Apple Silicon·Intel macOS 환경에서 설치·반입·재시작을 확인했다. 실제 Mac 기기에서의 학생 사용은 아직 관찰하지 않았다. 코드 서명, 스캔 OCR·LLM 계정 연결, 실제 학생 사용성과 학습효과는 아직 검증하지 않았다.
+**현재 상태: 설계 v4.2 + Windows·macOS 시범판 v0.7.0.** 다음 목표는 학생 2~3명의 시범 사용이며 Mac 사용자도 포함한다. 실제 PDF의 선택 페이지에서 pdf.js로 텍스트 초안을 만들고, 로컬 화면에서 계획·공부 시간·주간 예측을 사용하고, 한 달 학습 캘린더에서 기록 없는 날을 직접 확인(사후 기록·누락 확인과 보완 계획·휴식)할 수 있다. Windows 설치본과 macOS 앱은 앱 전용 Node.js와 pdf.js를 포함한다. Windows 설치본은 개발 PC와 Node.js·Python이 없는 Windows 샌드박스에서, macOS 앱은 GitHub의 Apple Silicon·Intel macOS 환경에서 설치·반입·재시작을 확인했다. 실제 Mac 기기에서의 학생 사용은 아직 관찰하지 않았다. 코드 서명, 스캔 OCR·LLM 계정 연결, 실제 학생 사용성과 학습효과는 아직 검증하지 않았다.
 
 ## Windows 설치본
 
-`dist/Challenge-Master-Setup-0.6.2-win-x64.exe`가 Windows 시범용 설치파일이다. 설치하면 시작 메뉴의 **Challenge Master**로 연다. 학생이 Node.js 등을 따로 설치할 필요는 없다. macOS 앱(`Challenge-Master-0.6.2-macos.zip`)은 GitHub Actions의 `packages` 실행 결과물로 받으며, 서명·공증이 없어 처음 한 번 시스템 설정에서 허용해야 한다([Mac 가이드](docs/pilot/guide/guide-mac.html)). 첫 화면에서 PDF, 추출할 시작·끝 페이지, 공부할 일과 가용 시간을 입력한다. 추출된 텍스트는 **원본 대조 필요** 상태로 남으며 검토 없이 학습 성과로 표시되지 않는다. 앱 화면의 **앱 종료**로 로컬 서버를 닫는다.
+`dist/Challenge-Master-Setup-0.7.0-win-x64.exe`가 Windows 시범용 설치파일이다. 설치하면 시작 메뉴의 **Challenge Master**로 연다. 학생이 Node.js 등을 따로 설치할 필요는 없다. macOS 앱(`Challenge-Master-0.7.0-macos.zip`)은 GitHub Actions의 `packages` 실행 결과물로 받으며, 서명·공증이 없어 처음 한 번 시스템 설정에서 허용해야 한다([Mac 가이드](docs/pilot/guide/guide-mac.html)). 첫 화면에서 PDF, 추출할 시작·끝 페이지, 공부할 일과 가용 시간을 입력한다. 추출된 텍스트는 **원본 대조 필요** 상태로 남으며 검토 없이 학습 성과로 표시되지 않는다. 앱 화면의 **앱 종료**로 로컬 서버를 닫는다.
 
 학습 기록과 PDF 원본·추출 초안은 `%LOCALAPPDATA%\ChallengeMaster`에 평문으로 저장한다. 앱 제거는 기본적으로 이 개인 기록을 보존하며, 제거 화면에서 선택한 경우에만 삭제한다. 앱이나 폴더를 공유하기 전에 자신의 PDF와 학습 기록이 포함됐는지 확인해야 한다. 설치본은 현재 서명되지 않았고, 깨끗한 Windows 환경의 배포 검증은 남아 있다. 배포 판단은 [설치파일 배포 조건](docs/distribution.md)과 [v0.5 검증 기록](docs/verification-v0.5.md)을 따른다. 시범 운영은 [시범 운영 절차](docs/pilot/pilot-plan.md)과 [학생 가이드](docs/pilot/guide/guide-windows.html)를 쓴다. 설치파일은 구글 드라이브 공유 링크로 전달한다.
 
