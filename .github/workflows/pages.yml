@@ -1,0 +1,50 @@
+# Publishes the web version (D022) to GitHub Pages. The site is replaced only after the unit tests and the
+# student flow in Chrome and WebKit pass on the exact files being published. Student records never leave
+# their browsers; this site holds only the app code.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci --omit=optional
+      - run: npm test
+      - run: node scripts/build-web.mjs dist/web
+      - name: Student flow in Chrome and WebKit
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save playwright-core@1.63.0
+          node "$RUNNER_TEMP/pw/node_modules/playwright-core/cli.js" install --with-deps webkit
+          export PLAYWRIGHT_CORE="$RUNNER_TEMP/pw/node_modules/playwright-core"
+          node scripts/browser-web.mjs chrome webkit
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

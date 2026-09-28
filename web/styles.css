@@ -149,6 +149,19 @@ button.secondary:hover {
   background: #c8ddd8;
 }
 
+button.danger {
+  color: #842a2a;
+  background: #fbe4e4;
+}
+
+button.danger:hover {
+  background: #f5cfcf;
+}
+
+.data {
+  margin-top: 16px;
+}
+
 .setup {
   display: grid;
   gap: 16px;

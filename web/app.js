@@ -1,4 +1,9 @@
-import { createCalendar } from '/calendar.js';
+import { createCalendar } from './calendar.js';
+
+// The web version (D022) keeps records in this browser instead of asking the local app's server.
+const browserMode = document.documentElement.dataset.mode === 'browser';
+const localApi = browserMode ? await import('./local-api.js') : null;
+const BACKUP_REMINDER_DAYS = 7;
 
 const elements = {
   recommendation: document.querySelector('#recommendation'),
@@ -30,6 +35,13 @@ const elements = {
   weekDeferred: document.querySelector('#weekDeferred'),
   weekAllocations: document.querySelector('#weekAllocations'),
   weekWarning: document.querySelector('#weekWarning'),
+  backupNotice: document.querySelector('#backupNotice'),
+  dataPanel: document.querySelector('#dataPanel'),
+  storageStatus: document.querySelector('#storageStatus'),
+  backupButton: document.querySelector('#backupButton'),
+  restoreButton: document.querySelector('#restoreButton'),
+  restoreInput: document.querySelector('#restoreInput'),
+  clearButton: document.querySelector('#clearButton'),
 };
 let visibleAllocations = [];
 let busy = false;
@@ -42,6 +54,7 @@ function localDateIso(date = new Date()) {
 }
 
 async function api(path, body) {
+  if (localApi) return localApi.request(path, body);
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET',
     headers: body ? { 'content-type': 'application/json' } : {},
@@ -108,6 +121,7 @@ function render(status) {
   elements.warning.textContent = plan?.warning ?? '';
   renderWeek(status.weeklyForecast, status.weeklyForecastError);
   calendar.update(status.calendar).catch(showError);
+  if (localApi) renderDataPanel().catch(showError);
 
   visibleAllocations = plan?.allocations ?? [];
   elements.taskSelect.replaceChildren(...visibleAllocations.map(optionFor));
@@ -193,6 +207,7 @@ elements.setupForm.addEventListener('submit', async (event) => {
   // so building it inside run() sent an empty upload from real browsers.
   const body = new FormData(elements.setupForm);
   run(async () => {
+    if (localApi) return localApi.setup(body);
     const response = await fetch('/api/setup', {
       method: 'POST',
       body,
@@ -229,6 +244,61 @@ elements.skipButton.addEventListener('click', () => {
 });
 
 const calendar = createCalendar({ api, run, today: localDateIso });
+
+function daysSince(iso) {
+  return (Date.now() - new Date(iso).getTime()) / 86_400_000;
+}
+
+async function renderDataPanel() {
+  const info = await localApi.storageInfo();
+  const lines = [info.lastBackupAt
+    ? `마지막 백업 파일 저장: ${localDateIso(new Date(info.lastBackupAt))}`
+    : '아직 백업 파일을 저장하지 않았습니다.'];
+  if (info.persisted === false) lines.push('이 브라우저는 오래 쓰지 않은 사이트의 기록을 정리할 수 있습니다. 백업 파일을 자주 저장해 주세요.');
+  elements.storageStatus.textContent = lines.join(' ');
+  const stale = info.hasRecords && (!info.lastBackupAt || daysSince(info.lastBackupAt) >= BACKUP_REMINDER_DAYS);
+  elements.backupNotice.hidden = !stale;
+  elements.backupNotice.textContent = stale
+    ? `백업 파일을 저장한 지 ${BACKUP_REMINDER_DAYS}일이 넘었거나 아직 저장하지 않았습니다. 화면 아래 「내 기록 관리」에서 저장해 두세요.`
+    : '';
+}
+
+function download(fileName, text) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+}
+
+if (localApi) {
+  elements.quitButton.hidden = true;
+  elements.dataPanel.hidden = false;
+  elements.backupButton.addEventListener('click', () => {
+    run(async () => {
+      const backup = await localApi.exportBackup();
+      download(backup.fileName, backup.text);
+      await renderDataPanel();
+      return null;
+    });
+  });
+  elements.restoreButton.addEventListener('click', () => elements.restoreInput.click());
+  elements.restoreInput.addEventListener('change', () => {
+    const file = elements.restoreInput.files[0];
+    elements.restoreInput.value = '';
+    if (!file) return;
+    if (!window.confirm('지금 이 브라우저의 기록을 백업 파일의 기록으로 바꿉니다. 계속할까요?')) return;
+    run(async () => localApi.importBackup(await file.text()));
+  });
+  elements.clearButton.addEventListener('click', () => {
+    if (!window.confirm('이 브라우저에 저장된 자료 설정과 공부 기록을 모두 지웁니다. 백업 파일이 없으면 되돌릴 수 없습니다. 지울까요?')) return;
+    run(() => localApi.clearAll());
+  });
+  // Another tab of this app changed the records; show them here too.
+  localApi.onChange(() => { refresh().catch(showError); });
+}
 
 refresh().catch(error => {
   showError(error);

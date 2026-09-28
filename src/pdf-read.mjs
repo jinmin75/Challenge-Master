@@ -34,7 +34,7 @@ export async function readPdfPages(pdfjs, { data, pages, cMapUrl, standardFontDa
       data,
       // Korean PDFs often rely on predefined CMaps; without them text comes out empty.
       cMapUrl, cMapPacked: true, standardFontDataUrl, wasmUrl,
-      useSystemFonts: false, disableFontFace: true, verbosity: 0,
+      useSystemFonts: false, disableFontFace: true, isEvalSupported: false, verbosity: 0,
       ...(worker ? { worker } : {}),
     });
     doc = await task.promise;
