@@ -252,15 +252,18 @@ function daysSince(iso) {
 async function renderDataPanel() {
   const info = await localApi.storageInfo();
   const lines = [info.lastBackupAt
-    ? `마지막 백업 파일 저장: ${localDateIso(new Date(info.lastBackupAt))}`
+    ? `마지막 백업 파일 저장: ${localDateIso(new Date(info.lastBackupAt))}.`
     : '아직 백업 파일을 저장하지 않았습니다.'];
   if (info.persisted === false) lines.push('이 브라우저는 오래 쓰지 않은 사이트의 기록을 정리할 수 있습니다. 백업 파일을 자주 저장해 주세요.');
   elements.storageStatus.textContent = lines.join(' ');
-  const stale = info.hasRecords && (!info.lastBackupAt || daysSince(info.lastBackupAt) >= BACKUP_REMINDER_DAYS);
-  elements.backupNotice.hidden = !stale;
-  elements.backupNotice.textContent = stale
-    ? `백업 파일을 저장한 지 ${BACKUP_REMINDER_DAYS}일이 넘었거나 아직 저장하지 않았습니다. 화면 아래 「내 기록 관리」에서 저장해 두세요.`
-    : '';
+  let notice = '';
+  if (info.hasRecords && !info.lastBackupAt) {
+    notice = '아직 백업 파일을 저장하지 않았습니다. 화면 아래 「내 기록 관리」에서 한 번 저장해 두세요.';
+  } else if (info.hasRecords && daysSince(info.lastBackupAt) >= BACKUP_REMINDER_DAYS) {
+    notice = `마지막 백업 파일을 저장한 지 ${BACKUP_REMINDER_DAYS}일이 지났습니다. 화면 아래 「내 기록 관리」에서 새로 저장해 두세요.`;
+  }
+  elements.backupNotice.hidden = notice === '';
+  elements.backupNotice.textContent = notice;
 }
 
 function download(fileName, text) {
