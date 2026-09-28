@@ -6,6 +6,7 @@ import { calendarFor, eventBuilder, isPdfBytes, localDate, parseSetupFields, pla
   statusFor, studentError, studentPdfError, textlessPages, writePaths, writeResponse } from './src/app-core.mjs';
 import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
+import { sourcePages } from './src/study-core.mjs';
 
 const DB_NAME = 'challenge-master';
 const STORE = 'kv';
@@ -245,6 +246,12 @@ export async function clearAll() {
   await transact([], 'readwrite', (_, put) => { for (const key of RECORD_KEYS) put(key, undefined); });
   notify();
   return request('/api/status');
+}
+
+// A-1 교재 보기: the registered PDF's extracted pages (null on the demo input).
+export async function sourceView() {
+  const values = await transact(['setup', 'draft'], 'readonly', saved => saved);
+  return sourcePages(values);
 }
 
 export async function storageInfo() {

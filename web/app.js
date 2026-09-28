@@ -3,6 +3,7 @@ import { createCalendar } from './calendar.js';
 // The web version (D022) keeps records in this browser instead of asking the local app's server.
 const browserMode = document.documentElement.dataset.mode === 'browser';
 const localApi = browserMode ? await import('./local-api.js') : null;
+const sourceModule = browserMode ? await import('./source-view.js') : null;
 const BACKUP_REMINDER_DAYS = 7;
 
 const elements = {
@@ -121,7 +122,10 @@ function render(status) {
   elements.warning.textContent = plan?.warning ?? '';
   renderWeek(status.weeklyForecast, status.weeklyForecastError);
   calendar.update(status.calendar).catch(showError);
-  if (localApi) renderDataPanel().catch(showError);
+  if (localApi) {
+    renderDataPanel().catch(showError);
+    if (currentView() === 'source') sourceView.update().catch(showError);
+  }
 
   visibleAllocations = plan?.allocations ?? [];
   elements.taskSelect.replaceChildren(...visibleAllocations.map(optionFor));
@@ -258,9 +262,9 @@ async function renderDataPanel() {
   elements.storageStatus.textContent = lines.join(' ');
   let notice = '';
   if (info.hasRecords && !info.lastBackupAt) {
-    notice = '아직 백업 파일을 저장하지 않았습니다. 화면 아래 「내 기록 관리」에서 한 번 저장해 두세요.';
+    notice = '아직 백업 파일을 저장하지 않았습니다. 「내 기록」 탭에서 한 번 저장해 두세요.';
   } else if (info.hasRecords && daysSince(info.lastBackupAt) >= BACKUP_REMINDER_DAYS) {
-    notice = `마지막 백업 파일을 저장한 지 ${BACKUP_REMINDER_DAYS}일이 지났습니다. 화면 아래 「내 기록 관리」에서 새로 저장해 두세요.`;
+    notice = `마지막 백업 파일을 저장한 지 ${BACKUP_REMINDER_DAYS}일이 지났습니다. 「내 기록」 탭에서 새로 저장해 두세요.`;
   }
   elements.backupNotice.hidden = notice === '';
   elements.backupNotice.textContent = notice;
@@ -276,9 +280,31 @@ function download(fileName, text) {
   setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
 }
 
+// Web version screens (D023): tabs switch views by the address hash, so back/forward and bookmarks work.
+const VIEWS = ['plan', 'source', 'data'];
+const viewNodes = { plan: document.querySelector('#view-plan'), source: document.querySelector('#view-source'),
+  data: elements.dataPanel };
+const sourceView = sourceModule ? sourceModule.createSourceView({ load: () => localApi.sourceView() }) : null;
+
+function currentView() {
+  const name = location.hash.slice(1);
+  return VIEWS.includes(name) ? name : 'plan';
+}
+
+function showView() {
+  const name = currentView();
+  for (const [view, node] of Object.entries(viewNodes)) node.hidden = view !== name;
+  for (const link of document.querySelectorAll('#appTabs a')) {
+    link.setAttribute('aria-current', link.dataset.view === name ? 'page' : 'false');
+  }
+  if (name === 'source') sourceView.update().catch(showError);
+}
+
 if (localApi) {
   elements.quitButton.hidden = true;
-  elements.dataPanel.hidden = false;
+  document.querySelector('#appTabs').hidden = false;
+  showView();
+  window.addEventListener('hashchange', showView);
   elements.backupButton.addEventListener('click', () => {
     run(async () => {
       const backup = await localApi.exportBackup();

@@ -90,7 +90,13 @@ async function checkEngine(name, playwright) {
     await pageA.goto(base, { waitUntil: 'networkidle' });
     await pageA.waitForFunction(() => !document.querySelector('#recommendation').textContent.includes('불러오는 중'));
     assert.equal(await pageA.locator('#quitButton').isHidden(), true, 'quit button is for the local app only');
-    assert.equal(await pageA.locator('#dataPanel').isVisible(), true);
+    assert.equal(await pageA.locator('#appTabs').isVisible(), true);
+    // 교재 tab before any registration: an explanation, not an empty page.
+    await pageA.click('#appTabs a[href="#source"]');
+    await pageA.locator('#sourceEmpty').waitFor({ state: 'visible' });
+    assert.equal(await pageA.locator('#view-plan').isHidden(), true);
+    await pageA.click('#appTabs a[href="#plan"]');
+    await pageA.locator('#view-plan').waitFor({ state: 'visible' });
     await callApi(pageA, '/api/start', { date: offset(-3) });
     await callApi(pageA, '/api/start', { date: offset(0) });
     await pageA.reload({ waitUntil: 'networkidle' });
@@ -123,6 +129,24 @@ async function checkEngine(name, playwright) {
     assert.match(await text(page, '#sourceLabel'), /한글-시험\.pdf/);
     if (shots) await page.locator('#setupPanel').screenshot({ path: join(shots, `${name}-registered.png`) });
 
+    // A-1 교재 보기: extracted pages, textless page, word search with highlights, and the tab survives a reload.
+    await page.click('#appTabs a[href="#source"]');
+    await page.locator('#sourcePageList li').nth(1).waitFor();
+    assert.equal(await page.locator('#sourcePageList li').count(), 2);
+    assert.match(await text(page, '#sourceTitle'), /웹 시험/);
+    assert.match(await text(page, '#sourcePage .page-text'), /한/);
+    await page.fill('#sourceSearch', '한');
+    await waitText(page, '#sourceSearchResult', '1개 쪽에서 1곳');
+    assert.equal(await page.locator('#sourcePage mark').count(), 1);
+    await page.locator('#sourcePageList li').nth(1).locator('button').click();
+    await waitText(page, '#sourcePage', '글자를 뽑지 못했습니다');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.locator('#sourcePageList li').first().waitFor();
+    assert.equal(await page.locator('#view-source').isVisible(), true, 'the 교재 tab stays after a reload');
+    if (shots) await page.locator('#view-source').screenshot({ path: join(shots, `${name}-source.png`) });
+    await page.click('#appTabs a[href="#plan"]');
+    await page.locator('#view-plan').waitFor({ state: 'visible' });
+
     await page.locator('#startButton').click();
     await page.locator('#allocations li').first().waitFor();
     await page.fill('#minutesInput', '5');
@@ -133,6 +157,8 @@ async function checkEngine(name, playwright) {
     assert.match(await text(page, '#sourceLabel'), /한글-시험\.pdf/, 'records survive a reload');
     await page.locator('#backupNotice:not([hidden])').waitFor();
 
+    await page.click('#appTabs a[href="#data"]');
+    await page.locator('#dataPanel').waitFor({ state: 'visible' });
     const [download] = await Promise.all([page.waitForEvent('download'), page.click('#backupButton')]);
     const backupPath = await download.path();
     const backup = JSON.parse(readFileSync(backupPath, 'utf8'));

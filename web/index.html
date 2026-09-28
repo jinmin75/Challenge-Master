@@ -8,6 +8,14 @@
 </head>
 <body>
   <main>
+    <nav id="appTabs" class="tabs" aria-label="화면 선택" hidden>
+      <a href="#plan" data-view="plan">오늘 계획</a>
+      <a href="#source" data-view="source">교재</a>
+      <a href="#data" data-view="data">내 기록</a>
+    </nav>
+    <p id="errorMessage" class="error" role="alert" hidden></p>
+
+    <div id="view-plan" class="view">
     <section class="panel primary">
       <div>
         <p class="eyebrow">학습 계획 도우미</p>
@@ -21,7 +29,6 @@
         <button id="quitButton" type="button" class="secondary">앱 종료</button>
       </div>
     </section>
-    <p id="errorMessage" class="error" role="alert" hidden></p>
 
     <section id="setupPanel" class="panel setup">
       <div>
@@ -162,6 +169,24 @@
         <ul id="needsReviewList" class="todo-list"></ul>
         <div id="calendarSignals"></div>
       </div>
+    </section>
+    </div>
+
+    <section id="view-source" class="view source" hidden>
+      <div class="panel source-head">
+        <p class="eyebrow">교재</p>
+        <h2 id="sourceTitle">교재</h2>
+        <p id="sourceMeta" class="muted"></p>
+        <label class="source-search">교재에서 낱말 찾기
+          <input id="sourceSearch" type="search" autocomplete="off">
+        </label>
+        <p id="sourceSearchResult" class="muted" aria-live="polite"></p>
+      </div>
+      <div id="sourceBody" class="source-body" hidden>
+        <ol id="sourcePageList" class="page-list" aria-label="쪽 목록"></ol>
+        <article id="sourcePage" class="panel page-view" tabindex="-1" aria-live="polite"></article>
+      </div>
+      <p id="sourceEmpty" class="panel muted">아직 등록한 교재가 없습니다. 「오늘 계획」 탭의 「내 PDF로 공부 계획 만들기」에서 PDF를 등록하면, 뽑아 둔 쪽을 여기서 읽을 수 있습니다.</p>
     </section>
 
     <section id="dataPanel" class="panel data" hidden>
