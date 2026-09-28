@@ -11,7 +11,7 @@ const project = process.argv[2];
 const shots = join(import.meta.dirname, '..', 'shots');
 mkdirSync(shots, { recursive: true });
 const { createServer } = await import(pathToFileURL(join(project, 'src', 'web.mjs')).href);
-const { localDate } = await import(pathToFileURL(join(project, 'src', 'calendar-api.mjs')).href);
+const { localDate } = await import(pathToFileURL(join(project, 'src', 'app-core.mjs')).href);
 const offset = days => { const date = new Date(); date.setDate(date.getDate() + days); return localDate(date); };
 
 const input = { availableMinutes: 60, remainingStudyMinutes: 180, tasks: [

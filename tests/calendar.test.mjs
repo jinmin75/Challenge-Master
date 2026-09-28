@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyEvent, emptyState } from '../src/events.mjs';
 import { buildCalendar } from '../src/calendar.mjs';
-import { localDate, withLateCredit } from '../src/calendar-api.mjs';
+import { localDate, withLateCredit } from '../src/app-core.mjs';
 import { planDay } from '../src/scheduler.mjs';
 import { planFromProgress } from '../src/replan.mjs';
 import { readStore } from '../src/store.mjs';

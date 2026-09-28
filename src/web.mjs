@@ -3,12 +3,13 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, u
 import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { planDay } from './scheduler.mjs';
-import { planFromProgress } from './replan.mjs';
-import { planWeek } from './weekly.mjs';
 import { readStore, appendToStore } from './store.mjs';
 import { convertPdf } from './pdf.mjs';
-import { handleCalendarApi, localDate, makeupMinutesOn, withLateCredit } from './calendar-api.mjs';
+import { calendarFor, clone, eventBuilder, isCalendarPath, isPdfBytes, localDate, parseSetupFields,
+  planInputFromSetup, safeOriginalName, statusFor, studentError, studentPdfError, textlessPages, writePaths,
+  writeResponse } from './app-core.mjs';
+
+export { studentPdfError };
 
 const defaultInputPath = resolve(import.meta.dirname, '../fixtures/synthetic-plan.json');
 const defaultWebRoot = resolve(import.meta.dirname, '../web');
@@ -35,231 +36,6 @@ function readSetupFile(path) {
     throw new Error('Setup file schema is not supported');
   }
   return saved;
-}
-
-function clone(value) {
-  return structuredClone(value);
-}
-
-function localDateIso(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function addLocalDays(date, days) {
-  const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-
-function weekDaysFromSetup(setup, startDate = new Date()) {
-  let remaining = setup.weeklyMinutes;
-  return Array.from({ length: 7 }, (_, index) => {
-    const availableMinutes = Math.min(setup.dailyMinutes, remaining);
-    remaining = Math.max(0, remaining - availableMinutes);
-    return {
-      date: localDateIso(addLocalDays(startDate, index)),
-      availableMinutes,
-      rest: availableMinutes === 0,
-    };
-  });
-}
-
-function planInputFromSetup(setup) {
-  const setupId = setup.id ?? 'setup-legacy';
-  const tasks = setup.tasks.map((task, index) => ({
-    id: `${setupId}-task-${index + 1}`,
-    title: task.title,
-    kind: task.kind,
-    minutes: task.minutes,
-    splittable: true,
-  }));
-  return {
-    date: localDateIso(),
-    availableMinutes: setup.dailyMinutes,
-    remainingStudyMinutes: tasks.reduce((sum, task) => sum + task.minutes, 0),
-    tasks,
-    weekDays: weekDaysFromSetup(setup),
-  };
-}
-
-function pageStatusList(setup) {
-  const summary = setup.source.extraction?.summary;
-  if (!summary) return [];
-  // Setups saved before v0.6 have no textlessPages; report their text state as unknown (null).
-  const textless = setup.source.extraction.textlessPages;
-  return summary.selectedPages.map(number => ({
-    pdfPageIndex: number,
-    status: summary.failedPages.includes(number) ? 'failed' : 'needs_review',
-    hasText: Array.isArray(textless) ? !textless.includes(number) : null,
-    reviewRequired: true,
-  }));
-}
-
-function publicSetup(setup) {
-  if (!setup) return {
-    configured: false,
-    message: '합성 데모입니다. PDF와 공부 범위를 등록하면 그 설정으로 계획을 만듭니다.',
-  };
-  return {
-    configured: true,
-    title: setup.title,
-    dailyMinutes: setup.dailyMinutes,
-    weeklyMinutes: setup.weeklyMinutes,
-    tasks: setup.tasks,
-    archiveFile: setup.archiveFile ?? null,
-    source: {
-      originalName: setup.source.originalName,
-      sizeBytes: setup.source.sizeBytes,
-      extractionStatus: setup.source.extractionStatus,
-      selectedPages: setup.source.selectedPages ?? [],
-      pages: pageStatusList(setup),
-      draftFile: setup.source.extraction?.draftFile ?? null,
-      manifestFile: setup.source.extraction?.manifestFile ?? null,
-    },
-    message: setup.archiveFile
-      ? '이전 계획 기록은 별도 파일로 보존했고, 새 자료는 빈 계획 기록에서 시작합니다. 추출 초안은 원본 대조 필요 상태입니다.'
-      : 'PDF 원본과 추출 초안은 이 PC에 저장했습니다. 각 페이지는 원본 대조 필요 상태이며, 검토 전에는 ready나 공부 완료로 반영하지 않습니다.',
-  };
-}
-
-function parseMinutes(value, field, { allowZero = false } = {}) {
-  if (!Number.isSafeInteger(value)) throw new Error(`${field} 값은 정수여야 합니다.`);
-  if (allowZero ? value < 0 : value <= 0) throw new Error(`${field} 값이 허용 범위를 벗어났습니다.`);
-  return value;
-}
-
-function planInputFor(requestBody, baseInput, state = null) {
-  const input = clone(baseInput);
-  input.date = localDateIso();
-  if (requestBody && Object.hasOwn(requestBody, 'date')) input.date = requestBody.date;
-  if (requestBody && Object.hasOwn(requestBody, 'availableMinutes')) {
-    input.availableMinutes = parseMinutes(requestBody.availableMinutes, 'availableMinutes', { allowZero: true });
-  } else if (state) {
-    // Make-up time the learner chose for this date (D020) adds to the usual daily time.
-    input.availableMinutes += makeupMinutesOn(state, input.date);
-  }
-  if (requestBody && Object.hasOwn(requestBody, 'rest')) input.rest = requestBody.rest === true;
-  return input;
-}
-
-function currentPlanProgress(state, taskId) {
-  return state.progress
-    .filter(item => item.planVersion === state.currentPlan?.planVersion && item.taskId === taskId)
-    .reduce((sum, item) => sum + item.completedMinutes, 0);
-}
-
-function currentPlanSkipped(state) {
-  return new Set(state.noncompletion
-    .filter(item => item.planVersion === state.currentPlan?.planVersion && item.confirmed === true)
-    .map(item => item.taskId));
-}
-
-function displayPlan(state) {
-  const plan = state.currentPlan;
-  if (!plan) return null;
-  const skipped = currentPlanSkipped(state);
-  const allocations = plan.allocations
-    .map(item => ({ ...item, minutes: item.minutes - currentPlanProgress(state, item.taskId) }))
-    .filter(item => item.minutes > 0 && !skipped.has(item.taskId));
-  const assignedMinutes = allocations.reduce((sum, item) => sum + item.minutes, 0);
-  return { ...plan, allocations, assignedMinutes };
-}
-
-function deriveRecommendedAction(state, plan = displayPlan(state)) {
-  if (!plan) return { kind: 'start', label: '오늘 계획 시작', taskId: null, minutes: null };
-  const allocation = plan.allocations[0] ?? null;
-  if (!allocation) {
-    const reason = plan.deferred[0]?.reason ?? 'no_allocation';
-    return { kind: 'wait', label: reason === 'rest_day' ? '오늘은 휴식입니다' : '다음 계획 조정이 필요합니다', taskId: null, minutes: 0 };
-  }
-  return {
-    kind: 'study',
-    label: `${allocation.title} ${allocation.minutes}분을 시작해 주세요`,
-    taskId: allocation.taskId,
-    minutes: allocation.minutes,
-  };
-}
-
-function weeklyDaysFor(baseInput, state) {
-  const today = localDateIso();
-  const current = state.currentPlan;
-  const applyCurrentPlan = day => current?.date === day.date ? {
-    ...day,
-    availableMinutes: current.availableMinutes,
-    rest: current.allocatableMinutes === 0 && current.deferred.some(item => item.reason === 'rest_day'),
-  } : day;
-  // Make-up time counts on future days; today's current plan already includes it.
-  const withMakeup = day => {
-    const extra = current?.date === day.date ? 0 : makeupMinutesOn(state, day.date);
-    return extra === 0 ? day : { ...day, availableMinutes: day.availableMinutes + extra, rest: false };
-  };
-  if (Array.isArray(baseInput.weekDays) && baseInput.weekDays.length > 0) {
-    return baseInput.weekDays.filter(day => day.date >= today).map(day => withMakeup(applyCurrentPlan({
-      date: day.date,
-      availableMinutes: day.availableMinutes ?? baseInput.availableMinutes,
-      rest: day.rest ?? false,
-    })));
-  }
-  const start = current?.date && current.date > today
-    ? new Date(`${current.date}T00:00:00`)
-    : new Date();
-  return Array.from({ length: 7 }, (_, index) => withMakeup(applyCurrentPlan({
-    date: localDateIso(addLocalDays(start, index)),
-    availableMinutes: baseInput.availableMinutes,
-  })));
-}
-
-function weeklyForecastFor(baseInput, state) {
-  return planWeek({
-    days: weeklyDaysFor(baseInput, state),
-    tasks: clone(baseInput.tasks),
-    nextTwoDaysReviewMinutes: baseInput.nextTwoDaysReviewMinutes ?? null,
-    planVersion: (state.currentPlan?.planVersion ?? 0) + 1,
-  }, withLateCredit(state));
-}
-
-function summarizeState(state, baseInput) {
-  const confirmedMinutes = state.progress.reduce((sum, item) => sum + item.completedMinutes, 0);
-  const currentPlan = displayPlan(state);
-  let weeklyForecast = null;
-  let weeklyForecastError = null;
-  try {
-    weeklyForecast = weeklyForecastFor(baseInput, state);
-  } catch (error) {
-    weeklyForecastError = `주간 예측을 갱신하지 못했습니다: ${error.message}`;
-  }
-  return {
-    currentPlan,
-    rawCurrentPlan: state.currentPlan,
-    eventCount: state.events.length,
-    confirmedProgressMinutes: confirmedMinutes,
-    lateProgressMinutes: (state.lateProgress ?? []).reduce((sum, item) => sum + item.minutes, 0),
-    attempts: state.attempts.map(item => ({
-      taskId: item.taskId,
-      evidenceType: item.evidenceType,
-      assistanceExposure: item.assistanceExposure,
-      planVersion: item.planVersion,
-    })),
-    progress: state.progress.map(item => ({
-      taskId: item.taskId,
-      completedMinutes: item.completedMinutes,
-      planVersion: item.planVersion,
-      learnerConfirmed: item.learnerConfirmed,
-    })),
-    noncompletion: state.noncompletion.map(item => ({
-      taskId: item.taskId,
-      planVersion: item.planVersion,
-      confirmed: item.confirmed,
-    })),
-    recommendedAction: deriveRecommendedAction(state, currentPlan),
-    planSource: '합성 데모 입력입니다. 실제 과업은 로컬 파일을 CHALLENGE_MASTER_INPUT으로 지정해 주세요.',
-    progressContract: '학생이 직접 확인한 실제 공부 시간만 다음 계획에서 차감합니다. 자기보고와 스킵은 숙달이나 완료로 바꾸지 않습니다.',
-    weeklyForecast,
-    weeklyForecastError,
-  };
 }
 
 function isJsonContentType(value) {
@@ -347,73 +123,15 @@ function partText(parts, name) {
   return parts.get(name)?.data.toString('utf8').trim() ?? '';
 }
 
-function parsePositiveInt(value, field) {
-  if (!/^[1-9]\d*$/.test(String(value).trim())) throw new Error(`${field} 값은 1 이상의 정수여야 합니다.`);
-  const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${field} 값은 1 이상의 정수여야 합니다.`);
-  return parsed;
-}
-
-function parseSetupTasks(value) {
-  const lines = value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  if (lines.length === 0) throw new Error('공부 범위를 한 줄 이상 입력해 주세요.');
-  if (lines.length > 30) throw new Error('공부 범위는 30개 이하로 입력해 주세요.');
-  return lines.map((line, index) => {
-    const [titleRaw, minutesRaw, kindRaw] = line.split('|').map(part => part.trim());
-    if (!titleRaw) throw new Error(`${index + 1}번째 공부 범위 제목을 입력해 주세요.`);
-    if (titleRaw.length > 120) throw new Error(`${index + 1}번째 공부 범위 제목이 너무 깁니다.`);
-    const minutes = minutesRaw ? parsePositiveInt(minutesRaw, `${index + 1}번째 공부 범위 시간`) : 30;
-    const kind = taskKindFromText(kindRaw);
-    return { title: titleRaw, minutes, kind };
-  });
-}
-
-function taskKindFromText(value = '') {
-  const normalized = value.trim().toLowerCase();
-  if (['review', '복습', '확인', '확인·교정'].includes(normalized)) return 'review';
-  if (['new', '새 내용', '새내용', '새 범위', '새범위', ''].includes(normalized)) return 'new';
-  throw new Error('공부 범위 종류는 새 내용 또는 복습으로 입력해 주세요.');
-}
-
-function selectedPagesFromParts(parts) {
-  const start = parsePositiveInt(partText(parts, 'pageStart') || '1', '시작 페이지');
-  const end = parsePositiveInt(partText(parts, 'pageEnd') || String(start), '끝 페이지');
-  if (end < start) throw new Error('끝 페이지는 시작 페이지보다 작을 수 없습니다.');
-  if (end - start + 1 > 30) throw new Error('한 번에 추출할 수 있는 페이지는 30쪽 이하입니다.');
-  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
-}
-
-function safeOriginalName(filename) {
-  const name = basename(filename || 'source.pdf').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
-  return name.toLowerCase().endsWith('.pdf') ? name : `${name}.pdf`;
-}
-
-// The extractor reports in English; students see these messages directly on the setup screen.
-export function studentPdfError(message = '') {
-  if (message.includes('page outside PDF')) {
-    return '끝 페이지가 PDF의 전체 쪽수보다 큽니다. PDF 뷰어에서 전체 쪽수를 확인한 뒤 다시 입력해 주세요.';
-  }
-  if (message.includes('encrypted PDF')) return '암호가 걸린 PDF는 등록할 수 없습니다.';
-  if (message.includes('cannot open PDF') || message.includes('not a PDF')) {
-    return 'PDF 파일을 열 수 없습니다. 파일이 손상되지 않았는지 확인해 주세요.';
-  }
-  if (message.includes('exceeds 50 MiB')) return 'PDF 파일이 너무 큽니다.';
-  return `PDF에서 글자를 뽑아내지 못했습니다. (${message})`;
-}
-
 function buildSetup({ parts, sourceDir, draftDir, pdfConverter = convertPdf }) {
   const file = parts.get('pdf');
   if (!file || !file.filename || file.data.length === 0) throw new Error('PDF 파일을 선택해 주세요.');
   const originalName = safeOriginalName(file.filename);
-  if (!originalName.toLowerCase().endsWith('.pdf') || file.data.subarray(0, 5).toString('latin1') !== '%PDF-') {
+  if (!originalName.toLowerCase().endsWith('.pdf') || !isPdfBytes(file.data)) {
     throw new Error('PDF 파일만 등록할 수 있습니다.');
   }
-  const title = partText(parts, 'title') || '내 학습 자료';
-  if (title.length > 120) throw new Error('자료 제목이 너무 깁니다.');
-  const dailyMinutes = parsePositiveInt(partText(parts, 'dailyMinutes'), '하루 공부 시간');
-  const weeklyMinutes = parsePositiveInt(partText(parts, 'weeklyMinutes'), '이번 주 공부 시간');
-  const tasks = parseSetupTasks(partText(parts, 'tasks'));
-  const selectedPages = selectedPagesFromParts(parts);
+  const { title, dailyMinutes, weeklyMinutes, tasks, selectedPages } =
+    parseSetupFields(name => partText(parts, name));
   mkdirSync(sourceDir, { recursive: true });
   mkdirSync(draftDir, { recursive: true });
   const storedFile = join(sourceDir, `${randomUUID()}.pdf`);
@@ -463,7 +181,7 @@ function buildSetup({ parts, sourceDir, draftDir, pdfConverter = convertPdf }) {
         draftFile,
         summary: extraction.summary,
         // Pages that yielded no text (scans or blank pages); the screen must not call them drafts.
-        textlessPages: selectedPages.filter(number => !extraction.manifest.pages[String(number)]?.markdown),
+        textlessPages: textlessPages(extraction, selectedPages),
       },
     },
   };
@@ -781,10 +499,6 @@ function requestOriginAllowed(request) {
   }
 }
 
-function eventBase(type) {
-  return { id: randomUUID(), type, at: new Date().toISOString() };
-}
-
 export function createServer({
   storeFile = resolve(process.env.CHALLENGE_MASTER_DATA_DIR ?? resolve(process.cwd(), 'private'), 'study-web.json'),
   planInput,
@@ -804,19 +518,14 @@ export function createServer({
   }
 
   function runtimePlan() {
-    if (fixedInput) return { input: clone(fixedInput), source: planSource, setup: null };
+    const storage = 'local';
+    if (fixedInput) return { input: clone(fixedInput), source: planSource, setup: null, storage };
     const setup = readSetupFile(configFile);
-    if (setup) return { input: planInputFromSetup(setup), source: `local_setup:${setup.source.originalName}`, setup };
-    return { input: readJsonFile(defaultInputPath), source: 'synthetic_demo', setup: null };
+    if (setup) return { input: planInputFromSetup(setup), source: `local_setup:${setup.source.originalName}`, setup, storage };
+    return { input: readJsonFile(defaultInputPath), source: 'synthetic_demo', setup: null, storage };
   }
 
-  function apiStatus(state, runtime) {
-    return {
-      ...summarizeState(state, runtime.input),
-      planSource: runtime.source,
-      setup: publicSetup(runtime.setup),
-    };
-  }
+  const apiStatus = statusFor;
 
   let httpServer;
 
@@ -848,103 +557,20 @@ export function createServer({
       sendJson(response, 200, apiStatus(readStore(storeFile), runtime));
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/start') {
-      const state = appendToStore(storeFile, before => {
-        const input = planInputFor(body, baseInput, before);
-        const plan = before.currentPlan
-          ? planFromProgress(input, withLateCredit(before))
-          : planDay({ ...input, planVersion: 1 });
-        return { ...eventBase('plan_created'), plan };
-      });
-      sendJson(response, 200, apiStatus(state, runtime));
+    if (request.method === 'GET' && url.pathname === '/api/calendar') {
+      const month = url.searchParams.get('month') ?? localDate().slice(0, 7);
+      sendJson(response, 200, calendarFor(readStore(storeFile), month, runtime));
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/progress') {
-      const minutes = parseMinutes(body.completedMinutes, 'completedMinutes');
-      if (body.requestId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId)) {
-        throw new Error('requestId는 UUID v4 형식이어야 합니다.');
+    if (request.method === 'POST' && writePaths.has(url.pathname)) {
+      try {
+        const state = appendToStore(storeFile, eventBuilder(url.pathname, body, runtime));
+        sendJson(response, 200, writeResponse(url.pathname, body, state, runtime));
+      } catch (error) {
+        throw isCalendarPath(url.pathname) ? studentError(error) : error;
       }
-      const state = appendToStore(storeFile, before => {
-        const previous = body.requestId && before.events.find(item => item.id === body.requestId);
-        if (previous) {
-          if (previous.type !== 'task_progress_recorded' || previous.taskId !== body.taskId ||
-              previous.completedMinutes !== minutes) throw new Error('requestId가 다른 기록에 사용됐습니다.');
-          return previous;
-        }
-        if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
-        return {
-          ...eventBase('task_progress_recorded'), id: body.requestId ?? randomUUID(),
-          taskId: body.taskId,
-          planVersion: before.currentPlan.planVersion,
-          completedMinutes: minutes,
-          learnerConfirmed: true,
-        };
-      });
-      sendJson(response, 200, apiStatus(state, runtime));
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/attempt') {
-      const state = appendToStore(storeFile, before => {
-        if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
-        return {
-          ...eventBase('attempt_recorded'),
-          taskId: body.taskId,
-          planVersion: before.currentPlan.planVersion,
-          evidenceType: body.evidenceType ?? 'observed_attempt',
-          assistanceExposure: body.assistanceExposure ?? 'unknown',
-          sourceVersion: body.sourceVersion ?? null,
-          response: body.response ?? '',
-        };
-      });
-      sendJson(response, 200, apiStatus(state, runtime));
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/shorten') {
-      const availableMinutes = parseMinutes(body.availableMinutes, 'availableMinutes', { allowZero: true });
-      const state = appendToStore(storeFile, before => {
-        if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
-        return {
-          ...eventBase('plan_created'),
-          plan: planFromProgress(planInputFor({ ...body, availableMinutes }, baseInput), withLateCredit(before)),
-        };
-      });
-      sendJson(response, 200, apiStatus(state, runtime));
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/rest') {
-      const state = appendToStore(storeFile, before => {
-        return {
-          ...eventBase('plan_created'),
-          plan: before.currentPlan
-            ? planFromProgress(planInputFor({ ...body, rest: true }, baseInput), withLateCredit(before))
-            : planDay({ ...planInputFor({ ...body, rest: true }, baseInput), planVersion: 1 }),
-        };
-      });
-      sendJson(response, 200, apiStatus(state, runtime));
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/skip') {
-      const state = appendToStore(storeFile, before => {
-        if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
-        return {
-          ...eventBase('noncompletion_confirmed'),
-          taskId: body.taskId,
-          planVersion: before.currentPlan.planVersion,
-          confirmed: true,
-        };
-      });
-      sendJson(response, 200, apiStatus(state, runtime));
-      return;
-    }
-    const handled = await handleCalendarApi({
-      request, url, body, storeFile,
-      dailyMinutes: baseInput.availableMinutes,
-      startDate: runtime.setup?.source?.uploadedAt ? localDate(new Date(runtime.setup.source.uploadedAt)) : null,
-      forecastFor: state => weeklyForecastFor(baseInput, state),
-      status: state => apiStatus(state, runtime),
-      send: (code, value) => sendJson(response, code, value),
-    });
-    if (handled) return;
     sendJson(response, 404, { error: '지원하지 않는 API 경로입니다.' });
   }
 

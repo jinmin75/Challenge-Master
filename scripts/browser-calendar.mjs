@@ -6,7 +6,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { localDate } from '../src/calendar-api.mjs';
+import { localDate } from '../src/app-core.mjs';
 import { createServer } from '../src/web.mjs';
 
 const playwrightPath = process.env.PLAYWRIGHT_CORE;
