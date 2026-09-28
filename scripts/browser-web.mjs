@@ -62,6 +62,16 @@ const readDraft = page => page.evaluate(() => new Promise((done, fail) => {
     get.onsuccess = () => { done(get.result?.draftMarkdown ?? null); open.result.close(); };
   };
 }));
+// Student records must not leave the browser: every request has to stay on the site's own origin.
+const externalRequests = [];
+function watchOrigin(page) {
+  page.on('request', request => {
+    const url = request.url();
+    if (!url.startsWith('blob:') && !url.startsWith('data:') && new URL(url).origin !== new URL(base).origin) {
+      externalRequests.push(url);
+    }
+  });
+}
 const text = (page, selector) => page.locator(selector).textContent();
 const waitText = (page, selector, expected) => page.waitForFunction(([s, e]) =>
   document.querySelector(s)?.textContent.includes(e), [selector, expected]);
@@ -76,6 +86,7 @@ async function checkEngine(name, playwright) {
     const contextA = await browser.newContext({ viewport });
     const pageA = await contextA.newPage();
     const watchA = watchPage(pageA);
+    watchOrigin(pageA);
     await pageA.goto(base, { waitUntil: 'networkidle' });
     await pageA.waitForFunction(() => !document.querySelector('#recommendation').textContent.includes('불러오는 중'));
     assert.equal(await pageA.locator('#quitButton').isHidden(), true, 'quit button is for the local app only');
@@ -91,6 +102,7 @@ async function checkEngine(name, playwright) {
     const context = await browser.newContext({ viewport, acceptDownloads: true });
     const page = await context.newPage();
     const watch = watchPage(page);
+    watchOrigin(page);
     page.on('dialog', dialog => dialog.accept());
     await page.goto(base, { waitUntil: 'networkidle' });
     await waitText(page, '#sourceLabel', '합성 데모');
@@ -158,8 +170,9 @@ async function checkEngine(name, playwright) {
     await page.setViewportSize({ width: 390, height: 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll on a phone');
     assert.deepEqual([watch.consoleErrors, watch.failedRequests, watchSecond.consoleErrors], [[], [], []]);
+    assert.deepEqual(externalRequests, [], 'requests left the site');
     await context.close();
-    return { engine: name, version: browser.version(), passed: true };
+    return { engine: name, version: browser.version(), passed: true, externalRequests: externalRequests.length };
   } finally {
     await browser.close();
   }

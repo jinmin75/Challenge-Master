@@ -1,11 +1,12 @@
 # 작업 상태
 
-기준일: `2026-09-28`. 설계 v4.2 / Windows·macOS 시범판 v0.7.0. 현재 목표는 학생 2~3명 시범 사용판이며 Mac 사용자도 포함한다([D016~D020](decisions.md), [PRD 6.1절·9.2절](prd.md)).
+기준일: `2026-09-28`. 설계 v4.2 / **웹 버전 v0.8.0**(학생 배포) / Windows·macOS 설치판 v0.7.0(예비). 현재 목표는 학생 2~3명 시범 사용이다([D016~D022](decisions.md), [PRD 6.1·9.3절](prd.md)).
 
 | 구분 | 현재 상태 | 근거/다음 확인 |
 |---|---|---|
-| Windows 설치파일 | v0.7.0 NSIS 설치파일; 앱 전용 Node.js와 pdf.js 포함, Python 없음; 서명 없음 | [v0.7 검증](verification-v0.7.md) |
-| macOS 앱 | `Challenge Master.app` 압축파일; Apple Silicon·Intel 겸용; 서명·공증 없음 | GitHub macOS 환경(arm64·Intel)에서 빌드·자동 시험 통과; 실제 Mac 학생 사용은 NOT RUN |
+| 웹 버전 | `https://jinmin75.github.io/Challenge-Master/`; 기록·추출 글자는 학생 브라우저(IndexedDB)에만, PDF 원본 저장 안 함; 백업 저장·불러오기·지우기; 사이트 밖 요청 0 | [v0.8 검증](verification-v0.8.md); Chrome·WebKit 통과, 실제 Safari·Edge·휴대폰 NOT RUN |
+| Windows 설치파일(예비) | v0.7.0 NSIS 설치파일, 공유폴더에서 뺌; 앱 전용 Node.js와 pdf.js 포함, Python 없음; 서명 없음 | [v0.7 검증](verification-v0.7.md) |
+| macOS 앱(예비) | `Challenge Master.app` 압축파일; Apple Silicon·Intel 겸용; 서명·공증 없음 | GitHub macOS 환경(arm64·Intel)에서 빌드·자동 시험 통과; 실제 Mac 학생 사용은 NOT RUN |
 | 제거 시 기록 선택 | Windows: 기본 보존, 선택 시 기록 폴더 삭제, 실행 중 제거 거부. Mac: 앱을 휴지통으로 옮기면 기록 보존, 기록 삭제는 폴더를 직접 지움 | Windows 무인 모드 통과; 샌드박스에서 실제 제거 화면 캡처로 문구·기본값 확인 |
 | 깨끗한 Windows 시험 | 네트워크를 끈 Windows 샌드박스에서 v0.7 설치·반입·기록·재시작·캘린더·제거 통과 | [v0.7 검증](verification-v0.7.md); 경고 화면은 범위 밖 |
 | PDF → MD | pdf.js로 선택 쪽의 글자 초안과 출처 manifest 저장; 검토 전 `needs_review`; 글자 없는 쪽은 `글자 없음`으로 표시 | 스캔 OCR·표/수식 복원은 시범 관찰 뒤 순서 결정 |
@@ -13,17 +14,17 @@
 | 브라우저 PDF 등록 | v0.4~v0.6.0은 실제 브라우저에서 등록 요청이 비어 항상 실패했음(0.6.1에서 수정) | [v0.6 검증](verification-v0.6.md) 0.6.1 절; v0.6.0 이하 설치본은 배포하지 않음. 0.7.0부터 설치본을 실제 Chrome으로 등록~종료까지 자동 시험(Windows 이 PC, CI macOS arm64·Intel) |
 | 학습 캘린더·월간 점검 | 한 달 캘린더, 기록 없는 날의 학생 확인(사후 기록·누락 확인+보완 계획·휴식), 보완은 한 날짜당 하루 공부 시간까지, 사후 기록은 과업 남은 분량 안에서 차감, 단일 점수 없음 | 합성 시험 L20~L24, 헤드리스 Chrome 조작 L25(이 PC·CI 세 운영체제) 통과; 설치본에서는 오늘 칸 표시까지만 자동 시험, 지난 날 확인 조작과 학생 사용은 NOT RUN |
 | 주간 재계획 | 확인한 공부 기록만 반영해 7일 예측 갱신; 미래 분량은 tentative | 합성 회귀 검증; 실제 학생 이행률·효과 미검증 |
-| 시범 운영 자료 | [시범 운영 절차](pilot/pilot-plan.md), 학생 가이드 PDF 원본([Windows](pilot/guide/guide-windows.html), [Mac](pilot/guide/guide-mac.html)); 전달은 구글 드라이브 링크(D017) | 실제 화면 캡처 포함; 파란 경고 창·Mac 첫 경고 창 문구는 미확인이라 가이드에 그렇게 적음 |
-| 자동 빌드 | GitHub Actions `packages`: 세 운영체제 단위 테스트와 캘린더 브라우저 시험, macOS 앱 빌드와 arm64·Intel 시험 | 공개 저장소의 표준 실행 환경 사용 |
+| 시범 운영 자료 | [시범 운영 절차](pilot/pilot-plan.md)(웹 버전으로 개정), 학생 가이드 [웹 가이드](pilot/guide/guide-web.html) PDF 한 벌(Windows·Mac 공통) | 설치판 가이드 두 벌은 예비로 저장소에만 남김 |
+| 자동 빌드 | GitHub Actions `pages`: 단위 시험 → 웹 빌드 → Chrome·WebKit 학생 흐름 시험 → 통과 시에만 배포. `packages`: 세 운영체제 단위 시험·캘린더 브라우저 시험, macOS 앱(예비) 빌드·시험 | 공개 저장소의 표준 실행 환경 사용 |
 | 실제 학생 계정 연결 | NOT RUN | 시범 관찰 뒤 공식 지원 경로 한 조합 확인 |
 | 실제 교재·학생 사용성 | NOT RUN | 시범에서 관찰 |
 | 제품 전체 검증 | K01–K25 NOT RUN | 로컬 회귀와 설치본 시험을 제품 전체 검증으로 대체하지 않음 |
-| 코드 검사 | `npm test` 109/109, `npm run check` 38개 JS 모듈 통과 | 전체 린트·타입 검사 아님 |
+| 코드 검사 | `npm test` 109/109, `npm run check` 45개 JS 모듈 통과 | 전체 린트·타입 검사 아님 |
 
 ## 시범 전에 남은 일
 
-1. Windows 설치파일과 Mac 압축파일을 드라이브 공유 폴더에 두고, 운영자 PC에서 Windows 설치파일을 링크로 내려받아 설치·제거하며 경고 화면과 제거 화면을 캡처한다. 이 캡처로 Windows 안내의 `확인 필요` 문구를 확정한다.
-2. 링크를 보내기 전에 Mac 참여자는 macOS 버전(13.5 이상)을 확인한다.
-3. 첫 Mac 참여자의 첫 사용을 화면 공유로 관찰하며 허용 단계 화면을 캡처하고, Mac 안내의 `확인 필요` 문구를 확정한다.
+1. 학생에게 주소와 웹 가이드 PDF를 전달한다(공유폴더에 가이드를 둠). 한 브라우저로만 쓰고 시크릿 창을 쓰지 않는다는 점, GitHub이 방문 IP를 기록한다는 점을 함께 알린다.
+2. 첫 Safari 사용자와 첫 휴대폰·태블릿 사용자가 생기면 화면이 제대로 열리는지 관찰한다(시험하지 않은 환경).
+3. 시범 중 백업 파일을 실제로 저장하는지, 기록이 사라진 사례가 있는지 기록한다.
 
 ‘개발 완료’나 임의의 완성도 점수를 현재 상태로 표기하지 않는다.

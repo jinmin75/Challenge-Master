@@ -4,9 +4,13 @@
 
 학생이 보유 자료와 학습 범위를 정하면, 자신의 LLM 계정과 개인 Wiki를 이용해 공부할 방향을 잡고 연속 학습·답안 연습·교정을 진행한다. 학습 기록을 남기고 가용 시간 안에서 다음 일정을 조정하는 시스템을 목표로 한다.
 
-**현재 상태: 설계 v4.2 + Windows·macOS 시범판 v0.7.0.** 다음 목표는 학생 2~3명의 시범 사용이며 Mac 사용자도 포함한다. 실제 PDF의 선택 페이지에서 pdf.js로 텍스트 초안을 만들고, 로컬 화면에서 계획·공부 시간·주간 예측을 사용하고, 한 달 학습 캘린더에서 기록 없는 날을 직접 확인(사후 기록·누락 확인과 보완 계획·휴식)할 수 있다. Windows 설치본과 macOS 앱은 앱 전용 Node.js와 pdf.js를 포함한다. Windows 설치본은 개발 PC와 Node.js·Python이 없는 Windows 샌드박스에서, macOS 앱은 GitHub의 Apple Silicon·Intel macOS 환경에서 설치·반입·재시작을 확인했다. 실제 Mac 기기에서의 학생 사용은 아직 관찰하지 않았다. 코드 서명, 스캔 OCR·LLM 계정 연결, 실제 학생 사용성과 학습효과는 아직 검증하지 않았다.
+**현재 상태: 설계 v4.2 + 웹 버전 v0.8.0(학생 배포) + Windows·macOS 설치판 v0.7.0(예비).** 학생은 `https://jinmin75.github.io/Challenge-Master/`를 브라우저로 열어 쓴다. 설치할 프로그램이 없고, 자료 설정·계획·공부 기록·PDF에서 뽑은 글자는 학생 브라우저(IndexedDB)에만 저장된다. PDF 원본은 저장하지 않으며 페이지는 자기 사이트 밖으로 요청을 보내지 않는다. Chrome과 WebKit(Safari 엔진)에서 학생 흐름 전체를 시험했고, 실제 Safari·Edge·휴대폰과 실제 학생 사용은 아직 관찰하지 않았다. 스캔 OCR·LLM 계정 연결, 학습효과는 검증하지 않았다.
 
-## Windows 설치본
+## 웹 버전
+
+`node scripts/build-web.mjs [출력 폴더]`가 정적 사이트(기본 `dist/web`)를 만든다. 페이지 파일, 설치판과 공유하는 규칙 모듈(`src/app-core.mjs` 등), pdf.js, 데모 입력을 담고, Node 모듈을 가져오는 파일이나 빈 파일이 있으면 멈춘다. GitHub Actions `pages` 워크플로가 `main`에 올라온 코드를 단위 시험과 Chrome·WebKit 학생 흐름 시험(`scripts/browser-web.mjs`)에 통과시킨 뒤에만 GitHub Pages로 배포한다. 배포된 주소를 직접 시험하려면 `node scripts/browser-web.mjs chrome webkit --url https://jinmin75.github.io/Challenge-Master/`를 쓴다(`PLAYWRIGHT_CORE`로 로컬 playwright-core 경로 지정).
+
+## Windows 설치본 (예비)
 
 `dist/Challenge-Master-Setup-0.7.0-win-x64.exe`가 Windows 시범용 설치파일이다. 설치하면 시작 메뉴의 **Challenge Master**로 연다. 학생이 Node.js 등을 따로 설치할 필요는 없다. macOS 앱(`Challenge-Master-0.7.0-macos.zip`)은 GitHub Actions의 `packages` 실행 결과물로 받으며, 서명·공증이 없어 처음 한 번 시스템 설정에서 허용해야 한다([Mac 가이드](docs/pilot/guide/guide-mac.html)). 첫 화면에서 PDF, 추출할 시작·끝 페이지, 공부할 일과 가용 시간을 입력한다. 추출된 텍스트는 **원본 대조 필요** 상태로 남으며 검토 없이 학습 성과로 표시되지 않는다. 앱 화면의 **앱 종료**로 로컬 서버를 닫는다.
 
