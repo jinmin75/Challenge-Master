@@ -1,7 +1,8 @@
 // Web version (D022) in real browsers: builds the site, serves it under /Challenge-Master/ like GitHub Pages,
 // and runs the student flow — calendar review, Korean PDF registration, reload, backup, two tabs, clearing,
 // restoring — with records only in the browser. Usage:
-//   PLAYWRIGHT_CORE=<local playwright-core> node scripts/browser-web.mjs [chrome] [webkit] [--shots DIR]
+//   PLAYWRIGHT_CORE=<local playwright-core> node scripts/browser-web.mjs [chrome] [webkit] [--shots DIR] [--url SITE]
+// --url checks an already published site (e.g. https://jinmin75.github.io/Challenge-Master/) instead of a local build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
@@ -12,34 +13,43 @@ import { tinyPdf } from '../tests/pdf-fixtures.mjs';
 import { calendarFlow, loadPlaywright, offset, watchPage } from './browser-flows.mjs';
 
 const args = process.argv.slice(2);
-const shotsIndex = args.indexOf('--shots');
-const shots = shotsIndex >= 0 ? resolve(args[shotsIndex + 1]) : null;
-const engines = args.filter((arg, index) => !arg.startsWith('--') && (shotsIndex < 0 || index !== shotsIndex + 1));
+const option = name => {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : null;
+};
+const shots = option('--shots') ? resolve(option('--shots')) : null;
+const liveUrl = option('--url');
+const optionValues = new Set([option('--shots'), liveUrl]);
+const engines = args.filter(arg => !arg.startsWith('--') && !optionValues.has(arg));
 if (engines.length === 0) engines.push('chrome');
 const PREFIX = '/Challenge-Master/';
 
-const site = mkdtempSync(join(tmpdir(), 'challenge-web-site-'));
-const build = spawnSync(process.execPath, [join(import.meta.dirname, 'build-web.mjs'), site], { encoding: 'utf8' });
-assert.equal(build.status, 0, build.stderr || build.stdout);
+let server = null;
+let base = liveUrl;
+if (!liveUrl) {
+  const site = mkdtempSync(join(tmpdir(), 'challenge-web-site-'));
+  const build = spawnSync(process.execPath, [join(import.meta.dirname, 'build-web.mjs'), site], { encoding: 'utf8' });
+  assert.equal(build.status, 0, build.stderr || build.stdout);
 
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.wasm': 'application/wasm' };
-const server = createServer((request, response) => {
-  const path = decodeURIComponent(new URL(request.url, 'http://x').pathname);
-  if (!path.startsWith(PREFIX)) { response.writeHead(404).end(); return; }
-  const file = resolve(site, normalize(path.slice(PREFIX.length) || 'index.html'));
-  if (file !== site && !file.startsWith(site + sep)) { response.writeHead(403).end(); return; }
-  try {
-    const target = statSync(file).isDirectory() ? join(file, 'index.html') : file;
-    response.writeHead(200, { 'content-type': types[extname(target)] ?? 'application/octet-stream' });
-    response.end(readFileSync(target));
-  } catch {
-    response.writeHead(404).end();
-  }
-});
-await new Promise(done => server.listen(0, '127.0.0.1', done));
-const base = `http://127.0.0.1:${server.address().port}${PREFIX}`;
+  const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
+    '.wasm': 'application/wasm' };
+  server = createServer((request, response) => {
+    const path = decodeURIComponent(new URL(request.url, 'http://x').pathname);
+    if (!path.startsWith(PREFIX)) { response.writeHead(404).end(); return; }
+    const file = resolve(site, normalize(path.slice(PREFIX.length) || 'index.html'));
+    if (file !== site && !file.startsWith(site + sep)) { response.writeHead(403).end(); return; }
+    try {
+      const target = statSync(file).isDirectory() ? join(file, 'index.html') : file;
+      response.writeHead(200, { 'content-type': types[extname(target)] ?? 'application/octet-stream' });
+      response.end(readFileSync(target));
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  base = `http://127.0.0.1:${server.address().port}${PREFIX}`;
+}
 
 // The page's own module instance, as app.js uses it.
 const callApi = (page, path, body = null) => page.evaluate(async ([p, b]) =>
@@ -161,5 +171,5 @@ try {
   for (const engine of engines) results.push(await checkEngine(engine, playwright));
   console.log(JSON.stringify(results, null, 2));
 } finally {
-  server.close();
+  server?.close();
 }
