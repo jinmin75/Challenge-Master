@@ -6,12 +6,12 @@ import { calendarFor, eventBuilder, isPdfBytes, localDate, parseSetupFields, pla
   statusFor, studentError, studentPdfError, textlessPages, writePaths, writeResponse } from './src/app-core.mjs';
 import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
-import { sourcePages } from './src/study-core.mjs';
+import { lockSession, MAX_SESSIONS, retakeSession, saveSession, sourcePages } from './src/study-core.mjs';
 
 const DB_NAME = 'challenge-master';
 const STORE = 'kv';
 const BACKUP_KIND = 'challenge-master-backup';
-const RECORD_KEYS = ['setup', 'events', 'draft', 'archives', 'meta'];
+const RECORD_KEYS = ['setup', 'events', 'draft', 'archives', 'meta', 'study'];
 const channel = 'BroadcastChannel' in globalThis ? new BroadcastChannel('challenge-master') : null;
 
 // English store messages that can reach students outside the calendar (the local app shows them as they are).
@@ -205,12 +205,13 @@ export async function setup(form) {
 
 export async function exportBackup() {
   const exportedAt = new Date().toISOString();
-  const backup = await transact(['setup', 'events', 'draft', 'archives', 'meta'], 'readwrite', (values, put) => {
+  const backup = await transact(['setup', 'events', 'draft', 'archives', 'meta', 'study'], 'readwrite', (values, put) => {
     put('meta', { ...(values.meta ?? {}), lastBackupAt: exportedAt });
     return {
       kind: BACKUP_KIND, schemaVersion: 1, exportedAt,
       setup: values.setup ?? null, events: values.events ?? [], draft: values.draft ?? null,
       archives: values.archives ?? [],
+      study: values.study ?? null,
     };
   });
   return { fileName: `challenge-master-backup-${localDate()}.json`, text: JSON.stringify(backup) };
@@ -226,6 +227,10 @@ export async function importBackup(text) {
   try {
     replay(backup.events);
     if (backup.setup) planInputFromSetup(backup.setup);
+    if (backup.study != null && (!Array.isArray(backup.study.sessions) ||
+        backup.study.sessions.some(item => typeof item?.id !== 'string' || typeof item?.question !== 'string'))) {
+      throw new Error('study records malformed');
+    }
   } catch (error) {
     throw new Error('백업 파일의 기록이 손상되어 불러올 수 없습니다.', { cause: error });
   }
@@ -234,6 +239,7 @@ export async function importBackup(text) {
     put('events', backup.events);
     put('draft', backup.draft ?? undefined);
     put('archives', backup.archives ?? []);
+    put('study', backup.study ?? undefined);
     // The restored records exist in that backup file, so it counts as the latest backup.
     put('meta', typeof backup.exportedAt === 'string' ? { lastBackupAt: backup.exportedAt } : undefined);
   });
@@ -254,12 +260,79 @@ export async function sourceView() {
   return sourcePages(values);
 }
 
+// ---- A-2 학습실 records: one document { schemaVersion, sessions[] } under the key 'study' ----
+
+function sessionsOf(values) {
+  return values.study?.sessions ?? [];
+}
+
+// Runs change(sessions, values) on the stored sessions in one transaction and stores the returned list.
+async function changeSessions(keys, change) {
+  const result = await transact(['study', ...keys], 'readwrite', (values, put) => {
+    const { sessions, value } = change([...sessionsOf(values)], values);
+    put('study', { schemaVersion: 1, sessions });
+    return value;
+  });
+  notify();
+  return result;
+}
+
+function findSession(sessions, id) {
+  const index = sessions.findIndex(item => item.id === id);
+  if (index < 0) throw new Error('학습 기록을 찾을 수 없습니다. 다른 창에서 지웠을 수 있습니다. 새로고침해 주세요.');
+  return index;
+}
+
+export async function studySessions() {
+  const values = await transact(['study'], 'readonly', saved => saved);
+  return [...sessionsOf(values)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function saveStudySession(input) {
+  const now = new Date().toISOString();
+  return changeSessions([], sessions => {
+    const index = input.id ? findSession(sessions, input.id) : -1;
+    if (index < 0 && sessions.length >= MAX_SESSIONS) throw new Error(`학습 기록은 ${MAX_SESSIONS}개까지 저장합니다.`);
+    const saved = saveSession(index >= 0 ? sessions[index] : null, input, { id: crypto.randomUUID(), now });
+    if (index >= 0) sessions[index] = saved;
+    else sessions.push(saved);
+    return { sessions, value: saved };
+  });
+}
+
+// Step 3 starts: the evidence pages' text is copied from the registered source in the same transaction.
+export async function lockStudySession(id) {
+  const now = new Date().toISOString();
+  return changeSessions(['setup', 'draft'], (sessions, values) => {
+    const index = findSession(sessions, id);
+    sessions[index] = lockSession(sessions[index], sourcePages(values), { now });
+    return { sessions, value: sessions[index] };
+  });
+}
+
+export async function retakeStudySession(id) {
+  const now = new Date().toISOString();
+  return changeSessions([], sessions => {
+    if (sessions.length >= MAX_SESSIONS) throw new Error(`학습 기록은 ${MAX_SESSIONS}개까지 저장합니다.`);
+    const retake = retakeSession(sessions[findSession(sessions, id)], { id: crypto.randomUUID(), now });
+    sessions.push(retake);
+    return { sessions, value: retake };
+  });
+}
+
+export async function deleteStudySession(id) {
+  return changeSessions([], sessions => {
+    sessions.splice(findSession(sessions, id), 1);
+    return { sessions, value: null };
+  });
+}
+
 export async function storageInfo() {
-  const values = await transact(['events', 'setup', 'meta'], 'readonly', saved => saved);
+  const values = await transact(['events', 'setup', 'meta', 'study'], 'readonly', saved => saved);
   let persisted = null;
   try { persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : null; } catch { persisted = null; }
   return {
-    hasRecords: Boolean(values.setup) || (values.events?.length ?? 0) > 0,
+    hasRecords: Boolean(values.setup) || (values.events?.length ?? 0) > 0 || (values.study?.sessions?.length ?? 0) > 0,
     lastBackupAt: values.meta?.lastBackupAt ?? null,
     persisted,
   };

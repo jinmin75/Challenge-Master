@@ -11,6 +11,7 @@
     <nav id="appTabs" class="tabs" aria-label="화면 선택" hidden>
       <a href="#plan" data-view="plan">오늘 계획</a>
       <a href="#source" data-view="source">교재</a>
+      <a href="#study" data-view="study">학습실</a>
       <a href="#data" data-view="data">내 기록</a>
     </nav>
     <p id="errorMessage" class="error" role="alert" hidden></p>
@@ -187,6 +188,17 @@
         <article id="sourcePage" class="panel page-view" tabindex="-1" aria-live="polite"></article>
       </div>
       <p id="sourceEmpty" class="panel muted">아직 등록한 교재가 없습니다. 「오늘 계획」 탭의 「내 PDF로 공부 계획 만들기」에서 PDF를 등록하면, 뽑아 둔 쪽을 여기서 읽을 수 있습니다.</p>
+    </section>
+
+    <section id="view-study" class="view study" hidden>
+      <div class="study-layout">
+        <aside class="panel study-side">
+          <h2>학습 기록</h2>
+          <button id="studyNew" type="button">새 기록</button>
+          <ul id="studyList" class="session-list"></ul>
+        </aside>
+        <div id="studyWork" class="panel study-work"></div>
+      </div>
     </section>
 
     <section id="dataPanel" class="panel data" hidden>

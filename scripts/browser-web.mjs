@@ -144,6 +144,65 @@ async function checkEngine(name, playwright) {
     await page.locator('#sourcePageList li').first().waitFor();
     assert.equal(await page.locator('#view-source').isVisible(), true, 'the 교재 tab stays after a reload');
     if (shots) await page.locator('#view-source').screenshot({ path: join(shots, `${name}-source.png`) });
+
+    // A-2 학습실 (docs/moa-lessons.md #1 reasons beside disabled buttons, #2 next step works without a reload).
+    await page.click('#appTabs a[href="#study"]');
+    await waitText(page, '#studyList', '아직 학습 기록이 없습니다');
+    const reason = label => text(page, `[data-reason="${label}"]`);
+    const action = label => page.locator(`[data-action="${label}"]`);
+    const stepField = name => page.locator(`[data-field="${name}"]`);
+    assert.equal(await action('기록 저장').isDisabled(), true);
+    assert.match(await reason('기록 저장'), /잠김: 문제를 먼저 입력하세요/);
+    await stepField('subject').fill('교육학');
+    await stepField('goal').fill('평가 유형');
+    await stepField('question').fill('형성평가를 설명하시오.');
+    assert.match(await reason('기록 저장'), /첫 답안을 먼저/);
+    // Unsaved text survives opening another step and coming back.
+    await page.click('[data-step="2"] .step-toggle');
+    await page.click('[data-step="1"] .step-toggle');
+    assert.equal(await stepField('question').inputValue(), '형성평가를 설명하시오.');
+    await stepField('firstAnswer').fill('수업 중에 하는 평가');
+    assert.equal(await reason('기록 저장'), '');
+    await action('기록 저장').click();
+    await page.locator('[data-step="2"].open').waitFor();
+    assert.equal(await action('원문과 대조 시작').isDisabled(), true);
+    assert.match(await reason('원문과 대조 시작'), /1개 이상 고르세요/);
+    const boxes = page.locator('.evidence-list input[type=checkbox]');
+    assert.equal(await boxes.nth(1).isDisabled(), true, 'a textless page cannot be evidence');
+    await waitText(page, '.evidence-list', '글자가 없는 쪽이라 고를 수 없습니다');
+    await boxes.nth(0).check();
+    await waitText(page, '[data-note="2"]', '고른 쪽 1개를 저장했습니다');
+    assert.equal(await action('원문과 대조 시작').isDisabled(), false);
+    await action('원문과 대조 시작').click();
+    await page.locator('[data-step="3"].open .compare').waitFor();
+    assert.match(await text(page, '.compare'), /수업 중에 하는 평가/);
+    assert.match(await text(page, '.compare'), /한/);
+    await stepField('missing').fill('학습 개선에 쓴다는 목적');
+    await action('대조 내용 저장').click();
+    await waitText(page, '[data-note="3"]', '저장했습니다');
+    await page.click('[data-step="4"] .step-toggle');
+    await stepField('revision').fill('형성평가는 수업 중 학습을 개선하려고 하는 평가다.');
+    await stepField('reviewDate').fill(offset(3));
+    await action('저장').click();
+    await waitText(page, '[data-note="4"]', '저장했습니다');
+    await page.reload({ waitUntil: 'networkidle' });
+    await waitText(page, '#studyList', '수정 중');
+    await waitText(page, '#studyList', `복습일 ${offset(3)}`);
+    await page.locator('.session-item').first().click();
+    await page.click('[data-step="1"] .step-toggle');
+    assert.equal(await stepField('question').getAttribute('readonly'), '', 'locked question is read-only');
+    assert.equal(await stepField('firstAnswer').getAttribute('readonly'), '');
+    await page.click('[data-step="4"] .step-toggle');
+    await action('다시 풀기').click();
+    await waitText(page, '[data-note="1"]', '같은 문제로 새 기록을 만들었습니다');
+    assert.equal(await page.locator('.session-item').count(), 2);
+    assert.equal(await stepField('question').inputValue(), '형성평가를 설명하시오.');
+    assert.equal(await stepField('firstAnswer').inputValue(), '');
+    await page.click('.study-foot .danger-link');
+    await page.waitForFunction(() => document.querySelectorAll('.session-item').length === 1);
+    assert.match(await text(page, '.study-head'), /새 기록/);
+    if (shots) await page.locator('#view-study').screenshot({ path: join(shots, `${name}-study.png`) });
+
     await page.click('#appTabs a[href="#plan"]');
     await page.locator('#view-plan').waitFor({ state: 'visible' });
 
@@ -166,6 +225,7 @@ async function checkEngine(name, playwright) {
     assert.equal(backup.setup.title, '웹 시험');
     assert.ok(backup.events.some(event => event.type === 'task_progress_recorded' && event.completedMinutes === 5));
     assert.match(backup.draft.draftMarkdown, /한/);
+    assert.equal(backup.study.sessions.length, 1, 'study records are in the backup');
     await waitText(page, '#storageStatus', '마지막 백업 파일 저장');
     await page.locator('#backupNotice[hidden]').waitFor({ state: 'attached' });
 
@@ -191,6 +251,9 @@ async function checkEngine(name, playwright) {
     await waitText(page, '#confirmedMinutes', '5분');
     assert.match(await text(page, '#sourceLabel'), /한글-시험\.pdf/, 'restored from the backup file');
     await waitText(page, '#storageStatus', '마지막 백업 파일 저장');
+    await page.click('#appTabs a[href="#study"]');
+    await waitText(page, '#studyList', '수정 중');
+    await page.click('#appTabs a[href="#data"]');
     if (shots) await page.locator('#dataPanel').screenshot({ path: join(shots, `${name}-data.png`) });
 
     await page.setViewportSize({ width: 390, height: 900 });

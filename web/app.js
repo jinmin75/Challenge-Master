@@ -4,6 +4,7 @@ import { createCalendar } from './calendar.js';
 const browserMode = document.documentElement.dataset.mode === 'browser';
 const localApi = browserMode ? await import('./local-api.js') : null;
 const sourceModule = browserMode ? await import('./source-view.js') : null;
+const studyModule = browserMode ? await import('./study-view.js') : null;
 const BACKUP_REMINDER_DAYS = 7;
 
 const elements = {
@@ -125,6 +126,7 @@ function render(status) {
   if (localApi) {
     renderDataPanel().catch(showError);
     if (currentView() === 'source') sourceView.update().catch(showError);
+    if (currentView() === 'study') studyView.update().catch(showError);
   }
 
   visibleAllocations = plan?.allocations ?? [];
@@ -281,10 +283,11 @@ function download(fileName, text) {
 }
 
 // Web version screens (D023): tabs switch views by the address hash, so back/forward and bookmarks work.
-const VIEWS = ['plan', 'source', 'data'];
+const VIEWS = ['plan', 'source', 'study', 'data'];
 const viewNodes = { plan: document.querySelector('#view-plan'), source: document.querySelector('#view-source'),
-  data: elements.dataPanel };
+  study: document.querySelector('#view-study'), data: elements.dataPanel };
 const sourceView = sourceModule ? sourceModule.createSourceView({ load: () => localApi.sourceView() }) : null;
+const studyView = studyModule ? studyModule.createStudyView({ api: localApi }) : null;
 
 function currentView() {
   const name = location.hash.slice(1);
@@ -298,6 +301,7 @@ function showView() {
     link.setAttribute('aria-current', link.dataset.view === name ? 'page' : 'false');
   }
   if (name === 'source') sourceView.update().catch(showError);
+  if (name === 'study') studyView.update().catch(showError);
 }
 
 if (localApi) {
