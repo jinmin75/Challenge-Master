@@ -96,3 +96,19 @@ test('the 오답노트 lists due reviews first with overdue days', () => {
   assert.equal(items[0].overdueDays, 2);
   assert.equal(items[1].dueNow, false);
 });
+
+test('a due review pushed out of a full review share says so, instead of pointing at an old plan', () => {
+  // Six notes due the same day, 10 minutes each: the 60-minute day's review share cannot hold them all.
+  const sessions = Array.from({ length: 6 }, (_, index) => saveSession(null, {
+    question: `문제 ${index + 1}`, firstAnswer: '답', mainCause: CAUSES[0], reviewDate: '2026-10-01', reviewMinutes: 10,
+  }, { id: `n${index + 1}`, now: '2026-09-29T10:00:00.000Z' }));
+  const state = plan(emptyState(), '2026-10-01', sessions, { first: true });
+  const cycles = sessions.map(session => reviewCycle(session, state, '2026-10-01'));
+  const pushed = cycles.filter(cycle => cycle.deferredNow && !cycle.inCurrentPlan);
+  assert.ok(pushed.length > 0, 'some reviews are deferred today');
+  for (const cycle of pushed) {
+    assert.equal(cycle.planned, true);
+    assert.match(completeBlocker(cycle), /복습 몫이 차서/);
+  }
+  assert.equal(cycles.filter(cycle => cycle.inCurrentPlan).every(cycle => completeBlocker(cycle) === null), true);
+});

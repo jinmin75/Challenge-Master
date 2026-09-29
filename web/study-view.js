@@ -2,7 +2,7 @@
 // original → revised answer and review date. Checked against docs/moa-lessons.md:
 // #1 every disabled button shows why, next to it; #2 every action redraws the whole view from stored records.
 import { CAUSES, defaultVerification, LOG_TYPES, lockBlocker, logBlocker, logPrefill, MANUAL_LOG_TYPES, MAX_EVIDENCE,
-  REVIEW_MINUTES_DEFAULT, saveBlocker, searchPages, sessionStatus, sessionTitle, summaryBlocker, summaryDraft,
+  REVIEW_MINUTES_DEFAULT, saveBlocker, searchPages, sessionStatus, staleEvidence, sessionTitle, summaryBlocker, summaryDraft,
   VERIFICATION } from './src/study-core.mjs';
 import { parseCauseSuggestion, PROVIDERS, PURPOSES, REQUEST_SOURCE_LIMIT, RESPONSE_LIMIT } from './src/ai-bridge.mjs';
 
@@ -265,11 +265,25 @@ export function createStudyView({ api, onChange = async () => {} }) {
         el('ul', {}, ...current.evidence.map(ref => el('li', { text: `${ref.sourceTitle} · ${pageLabel(ref)}${ref.truncated ? ' · 일부만 저장' : ''}` }))),
       ];
     }
+    // After a new registration the textbook gets a new id: pages chosen before cannot be compared (or even shown in
+    // the list below), so they are named here and can be dropped in one step.
+    const stale = current.id ? staleEvidence(current, source) : [];
+    const staleNode = stale.length === 0 ? null : el('div', { class: 'stale-evidence' },
+      el('p', { text: `지금 교재에 없는 근거 ${stale.length}개: ${stale.map(ref => `PDF ${ref.pdfPageIndex}쪽`).join(', ')}. 자료를 다시 등록하기 전에 고른 쪽이라 대조에 쓸 수 없습니다.` }),
+      guardedButton({ label: '지금 교재에 없는 근거 빼기', kind: 'secondary', step: 2,
+        blocker: () => (dirty ? '1단에서 바꾼 내용을 먼저 저장하세요.' : null), onClick: async () => {
+          current = await api.saveStudySession({ ...draft(), evidence: current.evidence.filter(ref => !stale.includes(ref)) });
+          dirty = false;
+          note(2, '지금 교재에 없는 근거를 뺐습니다. 지금 교재에서 근거를 다시 고르세요.');
+        } }));
     return [
+      staleNode,
       ...evidenceChoices(),
       el('p', { class: 'muted', text: '「원문과 대조 시작」을 누르면 문제·첫 답안·고른 근거가 고정됩니다. 다른 조건으로 하려면 나중에 「다시 풀기」를 씁니다.' }),
       guardedButton({ label: '원문과 대조 시작', step: 2,
-        blocker: () => (dirty ? '1단에서 바꾼 내용을 먼저 저장하세요.' : lockBlocker(current.id ? current : null)),
+        blocker: () => (dirty ? '1단에서 바꾼 내용을 먼저 저장하세요.'
+          : stale.length > 0 ? '지금 교재에 없는 근거가 있습니다. 위의 「지금 교재에 없는 근거 빼기」를 누르세요.'
+            : lockBlocker(current.id ? current : null)),
         onClick: async () => {
           if (!window.confirm('대조를 시작하면 문제, 첫 답안, 고른 근거를 더 바꿀 수 없습니다. 시작할까요?')) return;
           current = await api.lockStudySession(current.id);
@@ -771,26 +785,36 @@ export function createStudyView({ api, onChange = async () => {} }) {
 
   // Reloads records and redraws everything (moa-lessons #2); keeps unsaved form values.
   async function reload() {
-    let keep = dirty ? draft() : null;
     [sessions, source] = await Promise.all([api.studySessions(), api.sourceView()]);
+    let switched = false;
     if (pendingOpen) {
       const target = sessions.find(item => item.id === pendingOpen.id);
       // Switching records from another tab: unsaved edits of the previous record must not leak into this one.
       if (target && (target.id === current.id || confirmLeave())) {
-        if (target.id !== current.id) keep = null;
+        switched = target.id !== current.id;
         // Draw only after the review info below is loaded, so a locked date never looks editable.
         setCurrent(target, pendingOpen.step);
       }
       pendingOpen = null;
     }
-    [review, logs] = current.id
-      ? await Promise.all([api.reviewInfo(current.id), api.studyLogs(current.id)])
-      : [{ cycle: null, dateBlocker: null }, []];
-    if (current.id) {
-      const stored = sessions.find(item => item.id === current.id);
-      current = stored ? { ...structuredClone(stored), ...(keep ? pick(keep) : {}) } : emptySession();
+    const id = current.id;
+    const stored = id ? sessions.find(item => item.id === id) ?? null : null;
+    const [loadedReview, loadedLogs, aiInfo] = stored
+      ? await Promise.all([api.reviewInfo(id), api.studyLogs(id),
+        stored.locked ? api.aiRequest(id, { provider: ai.provider, purpose: ai.purpose }) : null])
+      : [{ cycle: null, dateBlocker: null }, [], null];
+    // The learner moved to another record (or 「새 기록」) while this loaded; that view is already drawn.
+    if (current.id !== id) {
+      renderList();
+      return;
     }
-    ai.info = await loadAi();
+    review = loadedReview;
+    logs = loadedLogs;
+    ai.info = aiInfo;
+    // What the form holds now, taken after loading: text typed while the records loaded must survive the redraw.
+    const keep = dirty && !switched ? draft() : null;
+    if (id) current = stored ? { ...structuredClone(stored), ...(keep ? pick(keep) : {}) } : emptySession();
+    else if (keep) Object.assign(current, pick(keep));
     render();
   }
 
@@ -798,6 +822,13 @@ export function createStudyView({ api, onChange = async () => {} }) {
     const editable = current.locked ? FIELDS.filter(name => !['question', 'firstAnswer'].includes(name)) : FIELDS;
     return { ...Object.fromEntries(editable.map(name => [name, values[name]])), otherCauses: values.otherCauses };
   }
+
+  // Reloading or closing the page would drop typed answers without a word; let the browser ask first.
+  window.addEventListener('beforeunload', event => {
+    if (!dirty) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 
   newButton.addEventListener('click', () => {
     if (!confirmLeave()) return;

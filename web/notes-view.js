@@ -23,6 +23,7 @@ function reviewLine(item) {
   if (!cycle.due) return `복습일 ${cycle.date}`;
   const overdue = item.overdueDays > 0 ? ` · ${item.overdueDays}일 지남` : '';
   if (cycle.inCurrentPlan) return `오늘 복습할 차례${overdue} · 오늘 계획에 있음(기록 ${cycle.credited}/${cycle.minutes}분)`;
+  if (cycle.deferredNow) return `복습할 차례${overdue} · 오늘은 복습 몫이 차서 배정되지 않음(뒤 계획으로 넘어감)`;
   if (cycle.planned) return `복습할 차례${overdue} · 지난 계획에 있음(기록 ${cycle.credited}/${cycle.minutes}분)`;
   return `복습할 차례${overdue} · 아직 계획에 들어가지 않음(「오늘 시작」이나 「남은 과업 다시 배정」을 누르면 들어갑니다)`;
 }

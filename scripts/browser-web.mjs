@@ -339,7 +339,9 @@ async function checkEngine(name, playwright) {
     assert.equal(await stepField('mainCause').inputValue(), '비슷한 개념과 혼동함');
     await waitText(page, '[data-note="4"]', 'AI가 제안한 원인을 넣었습니다');
     if (shots) await page.locator('#view-study').screenshot({ path: join(shots, `${name}-ai.png`) });
-    await page.reload({ waitUntil: 'networkidle' });
+    // The inserted cause is not saved yet: reloading asks first (the handler above accepts, so the reload goes on).
+    const [unloadDialog] = await Promise.all([page.waitForEvent('dialog'), page.reload({ waitUntil: 'networkidle' })]);
+    assert.equal(unloadDialog.type(), 'beforeunload');
     await waitText(page, '#studyList', '마무리함');
     await waitText(page, '#studyList', `복습일 ${offset(3)}`);
     await page.locator('.session-item').first().click();
@@ -511,6 +513,36 @@ async function checkEngine(name, playwright) {
       assert.match(folder.head, /^---\nkind: "challenge-master-source-note"/);
     }
     if (shots) await page.locator('#wikiPanel').screenshot({ path: join(shots, `${name}-wiki.png`) });
+
+    // Registering the PDF again gives the textbook a new id: evidence chosen before (not yet compared) is named in
+    // step 2 and dropped in one step, then comparison starts with pages of the new registration.
+    await page.click('#appTabs a[href="#study"]');
+    await page.locator('#studyNew').click();
+    await stepField('question').fill('총괄평가를 설명하시오.');
+    await stepField('firstAnswer').fill('학기 말 시험');
+    await action('기록 저장').click();
+    await page.locator('[data-step="2"].open').waitFor();
+    await page.locator('.evidence-list input[type=checkbox]').nth(0).check();
+    await waitText(page, '[data-note="2"]', '고른 쪽 1개를 저장했습니다');
+    await page.click('#appTabs a[href="#plan"]');
+    await page.locator('#pdfInput').setInputFiles({ name: '한글-시험.pdf', mimeType: 'application/pdf', buffer: tinyPdf({ korean: true }) });
+    await page.fill('#pageStartInput', '1');
+    await page.fill('#pageEndInput', '2');
+    await page.getByRole('button', { name: '이 설정으로 시작' }).click();
+    await page.locator('#extractionPages li').nth(1).waitFor();
+    await page.click('#appTabs a[href="#study"]');
+    await page.locator('.session-item', { hasText: '총괄평가를 설명하시오' }).click();
+    // Step 2 may still be open from before the registration; open it only when closed.
+    if (await page.locator('[data-step="2"].open').count() === 0) await page.click('[data-step="2"] .step-toggle');
+    await waitText(page, '.stale-evidence', '지금 교재에 없는 근거 1개: PDF 1쪽');
+    assert.match(await reason('원문과 대조 시작'), /잠김: 지금 교재에 없는 근거가 있습니다/);
+    await action('지금 교재에 없는 근거 빼기').click();
+    await waitText(page, '[data-note="2"]', '지금 교재에 없는 근거를 뺐습니다');
+    assert.equal(await page.locator('.stale-evidence').count(), 0);
+    await page.locator('.evidence-list input[type=checkbox]').nth(0).check();
+    await waitText(page, '[data-note="2"]', '고른 쪽 1개를 저장했습니다');
+    await action('원문과 대조 시작').click();
+    await page.locator('[data-step="3"].open .compare').waitFor();
 
     await page.setViewportSize({ width: 390, height: 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll on a phone');

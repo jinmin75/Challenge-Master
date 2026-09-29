@@ -106,6 +106,16 @@ export function saveBlocker(draft) {
   return null;
 }
 
+// Evidence that cannot be compared now: chosen in a textbook that is no longer registered (a new registration gets a
+// new source id) or on a page without text. It has to be dropped before comparison can start.
+export function staleEvidence(session, source) {
+  return (session?.evidence ?? []).filter(ref => {
+    const page = source?.sourceId === ref.sourceId
+      ? source.pages.find(item => item.pdfPageIndex === ref.pdfPageIndex) : null;
+    return !page || page.state !== 'draft';
+  });
+}
+
 // Why comparison (step 3) cannot start yet (null when it can).
 export function lockBlocker(session) {
   if (!session) return '먼저 1단에서 기록을 저장하세요.';
@@ -265,6 +275,9 @@ export function reviewCycle(session, state, today) {
     due: date <= today,
     planned,
     inCurrentPlan: Boolean(current),
+    // Today's plan had no room for it in the review share (not a rest day); it moves on with the other deferred work.
+    deferredNow: !current && Boolean(state?.currentPlan?.deferred?.some(item => item.taskId === taskId
+      && ['capacity', 'partial_capacity', 'over_budget'].includes(item.reason))),
     minutes,
     credited,
     done: markedDone || (planned && credited >= minutes),
@@ -316,6 +329,9 @@ export function completeBlocker(cycle) {
   if (!cycle) return '복습일이 없습니다. 학습실 4단에서 복습일을 고르세요.';
   if (!cycle.due) return `${cycle.date}에 복습할 차례가 됩니다.`;
   if (cycle.done) return '이 복습은 마쳤습니다. 다음 복습일을 고르세요.';
+  if (cycle.deferredNow) {
+    return '오늘 계획의 복습 몫이 차서 이 복습은 오늘 배정되지 않았습니다. 뒤 계획에 배정된 날 기록하세요.';
+  }
   if (cycle.planned && !cycle.inCurrentPlan) {
     return '지난 계획에 들어 있던 복습입니다. 「오늘 계획」에서 「남은 과업 다시 배정」을 누른 뒤 기록하세요.';
   }
