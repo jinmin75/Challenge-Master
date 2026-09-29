@@ -448,11 +448,11 @@ export function saveLog(previous, input, { id, now, session }) {
   const blocker = logBlocker(input);
   if (blocker) throw new Error(blocker);
   const type = previous?.type ?? input.type;
-  if (!LOG_TYPES[type]) throw new Error('학습로그 유형이 올바르지 않습니다.');
+  if (!LOG_TYPES[type]) throw new Error('메모 종류가 올바르지 않아요.');
   const content = String(input.content);
-  if (content.length > 12000) throw new Error('학습로그 내용이 너무 깁니다(12,000자까지).');
+  if (content.length > 12000) throw new Error('메모가 너무 길어요(12,000자까지).');
   const title = String(input.title ?? '').trim() || logTitle(type, content);
-  if (title.length > 240) throw new Error('학습로그 제목이 너무 깁니다(240자까지).');
+  if (title.length > 240) throw new Error('메모 제목이 너무 길어요(240자까지).');
   const verificationStatus = input.verificationStatus ?? previous?.verificationStatus ?? defaultVerification(type, session);
   if (!VERIFICATION[verificationStatus]) throw new Error('확인 상태가 올바르지 않습니다.');
   return {
@@ -476,7 +476,7 @@ export function saveLog(previous, input, { id, now, session }) {
 
 // Why the session cannot be wrapped up yet (null when it can).
 export function summaryBlocker(session) {
-  if (!session?.locked) return '3단에서 원문과 대조한 뒤에 마무리합니다.';
+  if (!session?.locked) return '「교재랑 맞춰 보기」를 먼저 눌러 주세요.';
   if (!session.revision.trim()) return '4단에서 수정 답안을 먼저 쓰세요.';
   return null;
 }
@@ -519,7 +519,7 @@ export function approveSummary(session, { title, content }, { now }) {
 
 // A learning-log candidate suggested by the learner's AI. Not grounded by default: the AI's claim is an estimate.
 export function candidateLog(candidate, { id, now, session, reviewId }) {
-  if (!LOG_TYPES[candidate.type]) throw new Error('학습로그 유형이 올바르지 않습니다.');
+  if (!LOG_TYPES[candidate.type]) throw new Error('메모 종류가 올바르지 않아요.');
   return {
     id,
     sessionId: session.id,

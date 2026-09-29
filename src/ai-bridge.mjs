@@ -88,7 +88,7 @@ function studyData(session, includeSource, extra = []) {
 
 // The request text for the learner to copy. purpose: 'review' | 'cause'.
 export function buildRequest(session, { purpose, includeSource }) {
-  if (!session?.locked) throw new Error('3단에서 원문과 대조를 시작한 기록만 AI에게 보낼 수 있습니다.');
+  if (!session?.locked) throw new Error('「교재랑 맞춰 보기」를 누른 문제만 AI에게 물어볼 수 있어요.');
   if (!PURPOSES[purpose]) throw new Error('요청 목적이 올바르지 않습니다.');
   const own = [];
   if (session.missing.trim()) own.push(`제가 찾은 빠진 것: ${session.missing.trim()}`);

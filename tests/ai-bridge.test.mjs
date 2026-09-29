@@ -45,7 +45,7 @@ test('the review request carries Moa\'s rules and the textbook text only when th
   const withoutSource = buildRequest(session, { purpose: 'review', includeSource: false });
   assert.doesNotMatch(withoutSource, /형성평가는 학습 중에 한다/);
   assert.match(withoutSource, /교재 원문: 보내지 않음/);
-  assert.throws(() => buildRequest({ ...session, locked: false }, { purpose: 'review', includeSource: true }), /3단에서/);
+  assert.throws(() => buildRequest({ ...session, locked: false }, { purpose: 'review', includeSource: true }), /맞춰 보기/);
 });
 
 test('the textbook text in a request is capped, and the cause request asks for the seven causes', () => {

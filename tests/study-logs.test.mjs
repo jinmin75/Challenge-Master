@@ -43,13 +43,13 @@ test('a learner-written log is approved at once, grounded when compared evidence
   assert.deepEqual([edited.id, edited.type, edited.title, edited.createdAt, edited.updatedAt],
     ['l1', 'CORRECTION', '고친 제목', now, later], 'the type of a saved log stays');
   assert.throws(() => saveLog(null, { type: 'CONCEPT', content: '  ' }, { id: 'l2', now, session }), /내용을 적어/);
-  assert.throws(() => saveLog(null, { type: 'NOPE', content: 'x' }, { id: 'l2', now, session }), /유형이 올바르지/);
+  assert.throws(() => saveLog(null, { type: 'NOPE', content: 'x' }, { id: 'l2', now, session }), /종류가 올바르지/);
   assert.throws(() => saveLog(null, { type: 'CONCEPT', content: 'x', verificationStatus: 'maybe' }, { id: 'l2', now, session }),
     /확인 상태/);
 });
 
 test('wrapping up needs the comparison and a revised answer; the draft lists material, causes and logs', () => {
-  assert.match(summaryBlocker(saveSession(null, { question: 'q', firstAnswer: 'a' }, { id: 's0', now })), /3단에서/);
+  assert.match(summaryBlocker(saveSession(null, { question: 'q', firstAnswer: 'a' }, { id: 's0', now })), /맞춰 보기/);
   assert.match(summaryBlocker(lockedSession()), /수정 답안을 먼저/);
   const session = lockedSession({ revision: '형성평가는 학습을 개선하려는 평가다.' });
   assert.equal(summaryBlocker(session), null);
