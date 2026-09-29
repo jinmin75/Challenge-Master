@@ -227,6 +227,65 @@ async function checkEngine(name, playwright) {
     await action('요약 승인').click();
     await waitText(page, '.summary-card', '형성평가는 학습 개선을 위한 평가다.');
     assert.equal(await page.locator('.summary-card').count(), 1);
+
+    // B 내 AI에게 검토받기: consent first (PRD 4), a request to copy, the pasted answer stored as an AI estimate,
+    // its candidates pending until 승인 / 고쳐서 승인 / 무시; a cause answer can fill step 4 but is not saved by itself.
+    await page.click('[data-step="3"] .step-toggle');
+    await page.selectOption('[data-ai-field="provider"]', 'Claude');
+    await waitText(page, '.ai-consent', 'Claude에 붙여 넣게 되는 것');
+    assert.match(await reason('동의하고 요청문 만들기'), /잠김: 교재 원문을 보내도 되는지 고르세요/);
+    await page.check('input[name="ai-rights"][value="confirmed"]');
+    assert.match(await reason('동의하고 요청문 만들기'), /잠김: 확인란에 체크하세요/);
+    await page.check('[data-ai-field="agree"]');
+    await action('동의하고 요청문 만들기').click();
+    await waitText(page, '[data-note="ai"]', '동의를 기록했습니다');
+    const request = await page.inputValue('[data-form-field="ai-request"]');
+    assert.match(request, /\[학습로그 후보\]/);
+    assert.match(request, /제가 찾은 빠진 것: 학습 개선에 쓴다는 목적/);
+    assert.match(request, /교재 원문 \(웹 시험 · PDF 1쪽/);
+    await action('요청문 복사').click();
+    // Headless browsers may refuse the clipboard; either way the learner is told what happened.
+    await page.waitForFunction(() => /복사했습니다|자동 복사가 되지 않았습니다/.test(document.querySelector('[data-note="ai"]').textContent));
+    assert.match(await reason('AI 답 저장'), /잠김: AI의 답을 붙여 넣어 주세요/);
+    await page.fill('[data-form-field="ai-response"]', ['[현재 자료에 근거한 설명] PDF 1쪽에 따르면… PDF 7쪽도 보세요.',
+      '[학습로그 후보]', '- 핵심 개념 | 형성평가 | 수업 중 학습 개선을 위한 평가', '- 확인 필요 | 출처 | 교재 쪽 확인',
+      '- 질문 | 피드백 시점 | 언제 피드백하나'].join('\n'));
+    await action('AI 답 저장').click();
+    await waitText(page, '[data-note="ai"]', '학습로그 후보 3개');
+    assert.match(await text(page, '.ai-review summary'), /AI 추정 · 공식 채점 아님 내 답 검토 · Claude/);
+    assert.match(await page.locator('.ai-warning').textContent(), /PDF 7쪽/);
+    assert.equal(await page.locator('.candidate').count(), 3);
+    if (shots) await page.locator('#view-study').screenshot({ path: join(shots, `${name}-ai-step3.png`) });
+    await page.locator('.candidate').first().getByRole('button', { name: '승인', exact: true }).click();
+    await waitText(page, '[data-note="log"]', '학습로그로 승인했습니다');
+    await page.locator('.candidate').last().getByRole('button', { name: '무시', exact: true }).click();
+    await waitText(page, '.log-section', '무시한 후보 1개');
+    await page.locator('.candidate').first().getByRole('button', { name: '고쳐서 승인' }).click();
+    await page.fill('[data-form-field="log-title"]', '출처 쪽 확인');
+    await action('고쳐서 승인').click();
+    await waitText(page, '[data-note="log"]', '고친 내용으로 승인했습니다');
+    assert.equal(await page.locator('.candidate').count(), 0);
+    assert.equal(await page.locator('.log-item').count(), 3);
+    assert.match(await text(page, '.log-section h4'), /학습로그 \(3\)/);
+    assert.match(await text(page, '.log-list'), /출처 쪽 확인[\s\S]*AI 후보에서 승인/);
+    assert.doesNotMatch(await page.locator('.log-item', { hasText: '출처 쪽 확인' }).textContent(), /근거 1쪽/);
+    // Another purpose needs its own consent; without the textbook-rights answer the text stays out.
+    await page.selectOption('[data-ai-field="purpose"]', 'cause');
+    await waitText(page, '.ai-consent', '목적: 오답 원인 분류');
+    await page.check('input[name="ai-rights"][value="unknown"]');
+    await page.check('[data-ai-field="agree"]');
+    await action('동의하고 요청문 만들기').click();
+    await waitText(page, '[data-note="ai"]', '동의를 기록했습니다');
+    assert.match(await page.inputValue('[data-form-field="ai-request"]'), /교재 원문: 보내지 않음/);
+    await page.fill('[data-form-field="ai-response"]', '주된 원인: 비슷한 개념과 혼동함\n함께 나타난 원인: 없음');
+    await action('AI 답 저장').click();
+    await waitText(page, '[data-note="ai"]', '제안된 원인은 아래');
+    assert.match(await text(page, '.ai-review summary >> nth=0'), /오답 원인 분류 · Claude · \d{4}-\d{2}-\d{2} · 교재 원문 없이 요청/);
+    await action('4단에 원인 넣기').click();
+    await page.locator('[data-step="4"].open').waitFor();
+    assert.equal(await stepField('mainCause').inputValue(), '비슷한 개념과 혼동함');
+    await waitText(page, '[data-note="4"]', 'AI가 제안한 원인을 넣었습니다');
+    if (shots) await page.locator('#view-study').screenshot({ path: join(shots, `${name}-ai.png`) });
     await page.reload({ waitUntil: 'networkidle' });
     await waitText(page, '#studyList', '마무리함');
     await waitText(page, '#studyList', `복습일 ${offset(3)}`);
@@ -268,10 +327,18 @@ async function checkEngine(name, playwright) {
     assert.ok(backup.events.some(event => event.type === 'task_progress_recorded' && event.completedMinutes === 5));
     assert.match(backup.draft.draftMarkdown, /한/);
     assert.equal(backup.study.sessions.length, 1, 'study records are in the backup');
-    assert.equal(backup.study.logs.length, 1, 'learning logs are in the backup');
+    assert.equal(backup.study.logs.length, 4, 'learning logs, AI candidates included, are in the backup');
     assert.equal(backup.study.sessions[0].summary.content, '형성평가는 학습 개선을 위한 평가다.');
+    assert.equal(backup.study.sessions[0].aiReviews.length, 2);
+    assert.equal(backup.study.sessions[0].aiReviews[0].evidenceType, 'self_reported_external_upload');
+    assert.equal(backup.study.aiConsents.length, 2, 'consents are in the backup');
     await waitText(page, '#storageStatus', '마지막 백업 파일 저장');
     await page.locator('#backupNotice[hidden]').waitFor({ state: 'attached' });
+    // B: consents are listed and revocable here; revoking says what cannot be recalled (confirm dialog).
+    await waitText(page, '#aiConsentList', 'Claude · 오답 원인 분류 · 교재 원문 빼고 요청');
+    await page.locator('#aiConsentList li').first().getByRole('button', { name: '철회' }).click();
+    await waitText(page, '#aiConsentList', '철회 ');
+    assert.equal(await page.locator('#aiConsentList button').count(), 1);
 
     // A second tab writes; the first tab follows without a reload.
     const second = await context.newPage();

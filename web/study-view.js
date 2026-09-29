@@ -4,6 +4,7 @@
 import { CAUSES, defaultVerification, LOG_TYPES, lockBlocker, logBlocker, logPrefill, MANUAL_LOG_TYPES, MAX_EVIDENCE,
   REVIEW_MINUTES_DEFAULT, saveBlocker, searchPages, sessionStatus, sessionTitle, summaryBlocker, summaryDraft,
   VERIFICATION } from './src/study-core.mjs';
+import { parseCauseSuggestion, PROVIDERS, PURPOSES, REQUEST_SOURCE_LIMIT, RESPONSE_LIMIT } from './src/ai-bridge.mjs';
 
 const STEPS = [
   { n: 1, name: '문제와 첫 답안' },
@@ -60,6 +61,8 @@ export function createStudyView({ api, onChange = async () => {} }) {
   let logs = [];
   let logForm = null;
   let summaryForm = null;
+  // B: the learner's own AI. provider and purpose stay chosen across records; the rest belongs to one record.
+  const ai = { provider: PROVIDERS[0], purpose: 'review', info: null, rights: '', agreed: false, response: '' };
   const notes = {};
 
   function field(name) {
@@ -87,6 +90,8 @@ export function createStudyView({ api, onChange = async () => {} }) {
   async function act(step, button, action) {
     if (button.disabled) return;
     button.disabled = true;
+    // Only the latest action's message stays; older ones would read as if they were about this action.
+    for (const key of Object.keys(notes)) delete notes[key];
     try {
       await action();
     } catch (error) {
@@ -112,7 +117,14 @@ export function createStudyView({ api, onChange = async () => {} }) {
     logs = [];
     logForm = null;
     summaryForm = null;
+    Object.assign(ai, { info: null, rights: '', agreed: false, response: '' });
     for (const key of Object.keys(notes)) delete notes[key];
+  }
+
+  // The request to copy, or what the consent must cover first; only a record in step 3 or later can be sent.
+  function loadAi() {
+    return current.id && current.locked
+      ? api.aiRequest(current.id, { provider: ai.provider, purpose: ai.purpose }) : Promise.resolve(null);
   }
 
   function select(session, step = 1) {
@@ -121,10 +133,11 @@ export function createStudyView({ api, onChange = async () => {} }) {
     // The review-date lock and the learning logs are loaded separately; draw again once they arrive.
     if (current.id) {
       const id = current.id;
-      Promise.all([api.reviewInfo(id), api.studyLogs(id)]).then(([info, loaded]) => {
+      Promise.all([api.reviewInfo(id), api.studyLogs(id), loadAi()]).then(([info, loaded, aiInfo]) => {
         if (current.id !== id) return;
         review = info;
         logs = loaded;
+        ai.info = aiInfo;
         rerender();
       }).catch(() => {});
     }
@@ -296,7 +309,151 @@ export function createStudyView({ api, onChange = async () => {} }) {
         note(3, '저장했습니다. 4단에서 답을 고쳐 쓰세요.');
       } }),
       stepNote(3),
+      aiSection(),
     ];
+  }
+
+  // ---- B 내 AI에게 검토받기: the app builds the request and stores the pasted answer; it sends nothing ----
+
+  function aiSection() {
+    const provider = el('select', { 'data-ai-field': 'provider' },
+      ...PROVIDERS.map(name => el('option', { value: name, text: name })));
+    provider.value = ai.provider;
+    const purpose = el('select', { 'data-ai-field': 'purpose' },
+      ...Object.entries(PURPOSES).map(([key, label]) => el('option', { value: key, text: label })));
+    purpose.value = ai.purpose;
+    for (const [node, key] of [[provider, 'provider'], [purpose, 'purpose']]) {
+      node.addEventListener('change', () => {
+        ai[key] = node.value;
+        Object.assign(ai, { info: null, rights: '', agreed: false });
+        rerender();
+        const id = current.id;
+        loadAi().then(info => {
+          if (current.id !== id) return;
+          ai.info = info;
+          rerender();
+        }).catch(error => {
+          note('ai', error.message, 'error');
+          rerender();
+        });
+      });
+    }
+    const parts = [
+      el('h4', { text: '내 AI에게 검토받기(선택)' }),
+      el('p', { class: 'muted', text: '앱은 아무것도 보내지 않습니다. 요청문을 복사해 내가 쓰는 AI 서비스에 붙여 넣고, 받은 답을 여기에 붙여 넣습니다. 붙여 넣은 답은 「AI 추정」으로만 저장하며 공식 채점이 아닙니다.' }),
+      el('div', { class: 'study-grid' }, el('label', {}, 'AI 서비스', provider), el('label', {}, '요청 목적', purpose)),
+    ];
+    if (!ai.info) parts.push(el('p', { class: 'muted', text: '요청문을 준비하고 있습니다…' }));
+    else if (!ai.info.consent) parts.push(consentCard());
+    else parts.push(...requestBlock());
+    parts.push(stepNote('ai'));
+    if ((current.aiReviews ?? []).length > 0) parts.push(reviewList());
+    return el('section', { class: 'ai-section' }, ...parts);
+  }
+
+  // PRD 4: what goes where and for what, the textbook-rights question, then an explicit check before any request.
+  function consentCard() {
+    const titles = ai.info.sourceTitles.join(', ') || '고른 교재';
+    const rights = el('fieldset', { class: 'ai-rights' },
+      el('legend', { text: `교재 원문(${titles})을 ${ai.provider}에 보내도 되나요?` }),
+      ...[['confirmed', '보내도 됩니다 — 이 서비스에 넣어도 되는 자료임을 확인했습니다'],
+        ['unknown', '모르겠습니다 — 교재 원문은 빼고 요청합니다']].map(([value, label]) => {
+        const radio = el('input', { type: 'radio', name: 'ai-rights', value });
+        radio.checked = ai.rights === value;
+        radio.addEventListener('change', () => {
+          ai.rights = value;
+          refreshBlockers();
+        });
+        return el('label', { class: 'cause-choice' }, radio, ` ${label}`);
+      }));
+    const agree = el('input', { type: 'checkbox', 'data-ai-field': 'agree' });
+    agree.checked = ai.agreed;
+    agree.addEventListener('change', () => {
+      ai.agreed = agree.checked;
+      refreshBlockers();
+    });
+    return el('div', { class: 'ai-consent' },
+      el('p', {}, el('strong', { text: `${ai.provider}에 붙여 넣게 되는 것` })),
+      el('ul', {},
+        el('li', { text: '문제, 첫 답안, 3단에 저장한 「빠진 것」과 「잘못 알고 있던 것」' }),
+        el('li', { text: `교재 원문: 아래에서 「보내도 됩니다」를 고른 경우에만(고른 쪽의 글자, ${REQUEST_SOURCE_LIMIT.toLocaleString('ko-KR')}자까지)` }),
+        el('li', { text: `목적: ${PURPOSES[ai.purpose]}` })),
+      el('p', { class: 'muted', text: '붙여 넣은 내용은 그 서비스의 정책에 따라 처리되며, 이미 보낸 내용은 이 앱에서 되돌릴 수 없습니다. 이름·학번 같은 개인정보는 문제와 답안에 적지 마세요. 동의는 「내 기록」 탭에서 철회할 수 있습니다.' }),
+      rights,
+      el('label', { class: 'cause-choice' }, agree, ` 위 내용을 내가 직접 ${ai.provider}에 붙여 넣는다는 것을 이해했습니다.`),
+      guardedButton({ label: '동의하고 요청문 만들기', step: 'ai',
+        blocker: () => (!ai.rights ? '교재 원문을 보내도 되는지 고르세요.' : !ai.agreed ? '확인란에 체크하세요.' : null),
+        onClick: async () => {
+          await api.grantAiConsent({ sessionId: current.id, provider: ai.provider, purpose: ai.purpose, sourceRights: ai.rights });
+          note('ai', '동의를 기록했습니다. 요청문을 복사해 AI 서비스에 붙여 넣으세요.');
+        } }));
+  }
+
+  function requestBlock() {
+    const { consent, request } = ai.info;
+    const text = el('textarea', { 'data-form-field': 'ai-request', rows: '8', readonly: true, 'aria-label': '요청문' });
+    text.value = request;
+    const copy = guardedButton({ label: '요청문 복사', kind: 'secondary', step: 'ai',
+      blocker: () => (dirty ? '바꾼 내용을 먼저 「대조 내용 저장」으로 저장하세요. 저장한 내용만 요청문에 들어갑니다.' : null),
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(request);
+          note('ai', '복사했습니다. AI 서비스의 입력창에 붙여 넣으세요.');
+        } catch {
+          note('ai', '자동 복사가 되지 않았습니다. 요청문 글상자를 누르고 전체 선택(Ctrl+A)한 뒤 복사(Ctrl+C)하세요.', 'error');
+        }
+      } });
+    const response = el('textarea', { 'data-form-field': 'ai-response', rows: '8' });
+    response.value = ai.response;
+    response.addEventListener('input', () => {
+      ai.response = response.value;
+      refreshBlockers();
+    });
+    const save = guardedButton({ label: 'AI 답 저장', step: 'ai',
+      blocker: () => (!ai.response.trim() ? 'AI의 답을 붙여 넣어 주세요.'
+        : ai.response.trim().length > RESPONSE_LIMIT ? `AI의 답은 ${RESPONSE_LIMIT.toLocaleString('ko-KR')}자까지 저장합니다.` : null),
+      onClick: async () => {
+        const result = await api.saveAiReview(current.id, { provider: ai.provider, purpose: ai.purpose, response: ai.response });
+        ai.response = '';
+        note('ai', result.candidates > 0
+          ? `저장했습니다. 학습로그 후보 ${result.candidates}개는 아래 「학습로그」에서 승인하거나 무시하세요.`
+          : ai.purpose === 'cause'
+            ? (result.cause ? '저장했습니다. 제안된 원인은 아래 「저장한 AI 답」에서 4단에 넣을 수 있습니다.'
+              : '저장했습니다. 답에서 「주된 원인:」 줄을 찾지 못해 원인 제안은 없습니다.')
+            : '저장했습니다. 답에서 학습로그 후보를 찾지 못했습니다.');
+      } });
+    return [
+      el('p', { class: 'muted ai-consent-line', text: `${consent.provider} · ${PURPOSES[ai.purpose]} 동의 ${consent.grantedAt.slice(0, 10)} · 교재 원문 ${consent.sourceRights === 'confirmed' ? '포함' : '빼고 요청'}` }),
+      el('label', {}, '① 이 요청문을 복사해 AI 서비스에 붙여 넣습니다', text),
+      copy,
+      el('label', {}, '② AI의 답을 그대로 붙여 넣습니다', response),
+      save,
+    ];
+  }
+
+  function reviewList() {
+    return el('div', { class: 'ai-reviews' },
+      el('h4', { text: `저장한 AI 답 (${current.aiReviews.length})` }),
+      // The newest answer is shown open, so its cause suggestion and button are in sight; older ones stay folded.
+      ...[...current.aiReviews].reverse().map((item, index) => {
+        const cause = item.purpose === 'cause' ? parseCauseSuggestion(item.response) : null;
+        const applied = cause && current.mainCause === cause.mainCause
+          && cause.otherCauses.every(other => (current.otherCauses ?? []).includes(other));
+        return el('details', { class: 'ai-review', 'data-ai-review': item.id, open: index === 0 },
+          el('summary', {}, el('span', { class: 'ai-badge', text: 'AI 추정 · 공식 채점 아님' }),
+            ` ${PURPOSES[item.purpose]} · ${item.provider} · ${item.at.slice(0, 10)}${item.includedSource ? '' : ' · 교재 원문 없이 요청'}`),
+          ...item.warnings.map(warning => el('p', { class: 'ai-warning', text: warning })),
+          cause ? el('p', { class: 'muted', text: `제안된 원인: ${cause.mainCause}${cause.otherCauses.length > 0 ? ` · 함께: ${cause.otherCauses.join(', ')}` : ''}` }) : null,
+          cause ? localButton('4단에 원인 넣기', applied ? '이미 4단에 들어 있습니다.' : null, () => {
+            current.mainCause = cause.mainCause;
+            current.otherCauses = cause.otherCauses;
+            dirty = true;
+            openStep = 4;
+            note(4, 'AI가 제안한 원인을 넣었습니다(AI 추정). 맞는지 확인한 뒤 「저장」을 누르세요.');
+            rerender();
+          }, 'secondary') : null,
+          el('pre', { class: 'page-text', text: item.response }));
+      }));
   }
 
   function step4() {
@@ -462,16 +619,16 @@ export function createStudyView({ api, onChange = async () => {} }) {
 
   function logFormNode() {
     const verification = el('select', { 'data-form-field': 'log-verificationStatus' },
-      ...Object.entries(VERIFICATION).filter(([key]) => key !== 'llm_inferred')
+      ...Object.entries(VERIFICATION).filter(([key]) => key !== 'llm_inferred' || logForm.verificationStatus === 'llm_inferred')
         .map(([key, label]) => el('option', { value: key, text: label })));
     verification.value = logForm.verificationStatus;
-    const save = guardedButton({ label: '로그 저장', step: 'log', blocker: () => logBlocker({ content:
+    const save = guardedButton({ label: logForm.approve ? '고쳐서 승인' : '로그 저장', step: 'log', blocker: () => logBlocker({ content:
       workNode.querySelector('[data-form-field="log-content"]')?.value ?? logForm.content }), onClick: async () => {
       captureForms();
       await api.saveStudyLog({ id: logForm.id, sessionId: current.id, type: logForm.type, title: logForm.title,
-        content: logForm.content, verificationStatus: logForm.verificationStatus });
+        content: logForm.content, verificationStatus: logForm.verificationStatus, approve: Boolean(logForm.approve) });
+      note('log', logForm.approve ? '고친 내용으로 승인했습니다.' : '학습로그를 저장했습니다.');
       logForm = null;
-      note('log', '학습로그를 저장했습니다.');
     } });
     const cancel = el('button', { type: 'button', class: 'link-button', text: '취소' });
     cancel.addEventListener('click', () => {
@@ -479,7 +636,7 @@ export function createStudyView({ api, onChange = async () => {} }) {
       rerender();
     });
     return el('div', { class: 'log-form' },
-      el('p', { class: 'log-form-type', text: `${logForm.id ? '로그 고치기' : '새 로그'} · ${LOG_TYPES[logForm.type].label}` }),
+      el('p', { class: 'log-form-type', text: `${logForm.approve ? 'AI 후보 고치기' : logForm.id ? '로그 고치기' : '새 로그'} · ${LOG_TYPES[logForm.type].label}` }),
       formInput('log-title', '제목(비우면 내용 앞부분으로 만듭니다)', logForm.title),
       formInput('log-content', '내용', logForm.content, { multiline: true, rows: 4, onInput: refreshBlockers }),
       el('label', {}, '확인 상태', verification),
@@ -507,8 +664,37 @@ export function createStudyView({ api, onChange = async () => {} }) {
       // A short log's automatic title is its whole content; show it once.
       log.content.replace(/\s+/g, ' ').trim() === log.title ? null : el('p', { class: 'log-content', text: log.content }),
       el('p', { class: 'muted log-meta', text: [VERIFICATION[log.verificationStatus],
-        log.sourcePages.length > 0 ? `근거 ${pageList(log.sourcePages)}` : null].filter(Boolean).join(' · ') }),
+        log.sourcePages.length > 0 ? `근거 ${pageList(log.sourcePages)}` : null,
+        log.origin === 'llm' ? 'AI 후보에서 승인' : null].filter(Boolean).join(' · ') }),
       el('div', { class: 'log-actions' }, edit, remove));
+  }
+
+  // A pending AI candidate: 승인 / 고쳐서 승인 / 무시 (Moa's pending → approved | ignored).
+  function candidateItem(log) {
+    const decide = (label, action, message) => {
+      const button = el('button', { type: 'button', class: action === 'ignore' ? 'link-button' : 'secondary', text: label });
+      button.addEventListener('click', () => act('log', button, async () => {
+        await api.decideStudyLog(log.id, action);
+        note('log', message);
+      }));
+      return button;
+    };
+    const edit = el('button', { type: 'button', class: 'secondary', text: '고쳐서 승인' });
+    edit.addEventListener('click', () => {
+      captureForms();
+      logForm = { id: log.id, type: log.type, title: log.title, content: log.content,
+        verificationStatus: log.verificationStatus, approve: true };
+      rerender();
+      workNode.querySelector('[data-form-field="log-content"]')?.focus();
+    });
+    return el('li', { class: 'log-item candidate', 'data-log-id': log.id },
+      el('div', { class: 'log-head' }, el('span', { class: 'log-chip', text: LOG_TYPES[log.type].label }),
+        el('strong', { text: log.title })),
+      log.content.replace(/\s+/g, ' ').trim() === log.title ? null : el('p', { class: 'log-content', text: log.content }),
+      el('p', { class: 'muted log-meta', text: log.verificationStatus === 'llm_inferred' ? 'AI 추정'
+        : `AI 추정 · ${VERIFICATION[log.verificationStatus]}` }),
+      el('div', { class: 'log-actions' }, decide('승인', 'approve', '후보를 학습로그로 승인했습니다.'), edit,
+        decide('무시', 'ignore', '후보를 무시했습니다. 요약과 Wiki 내보내기에 들어가지 않습니다.')));
   }
 
   function logSection() {
@@ -523,12 +709,21 @@ export function createStudyView({ api, onChange = async () => {} }) {
       });
       return button;
     }));
+    // Logs saved before B have no pending state; they are the learner's own.
+    const approved = logs.filter(log => (log.status ?? 'approved') === 'approved');
+    const pending = logs.filter(log => log.status === 'pending');
+    const ignored = logs.filter(log => log.status === 'ignored').length;
     return el('section', { class: 'log-section' },
-      el('h4', { text: `학습로그 (${logs.length})` }),
+      el('h4', { text: `학습로그 (${approved.length})` }),
       el('p', { class: 'muted', text: '공부하면서 남길 내용을 유형별로 적습니다. 「오개념 수정」·「보충 필요」·「미해결 질문」·「확인 필요」·「직접 메모」는 3·4단에서 적은 내용으로 시작합니다. 적은 로그는 나중에 개인 Wiki로 내보낼 수 있습니다.' }),
       buttons,
       logForm ? logFormNode() : null,
-      logs.length > 0 ? el('ul', { class: 'log-list' }, ...logs.map(logItem)) : null,
+      pending.length > 0 ? el('div', { class: 'candidate-block' },
+        el('h5', { text: `AI가 제안한 후보 (${pending.length}) · 아직 학습로그가 아닙니다` }),
+        el('p', { class: 'muted', text: '승인한 후보만 학습로그가 되어 학습 마무리와 Wiki 내보내기에 들어갑니다.' }),
+        el('ul', { class: 'log-list' }, ...pending.map(candidateItem))) : null,
+      approved.length > 0 ? el('ul', { class: 'log-list' }, ...approved.map(logItem)) : null,
+      ignored > 0 ? el('p', { class: 'muted', text: `무시한 후보 ${ignored}개는 목록에서 뺐습니다.` }) : null,
       stepNote('log'));
   }
 
@@ -594,6 +789,7 @@ export function createStudyView({ api, onChange = async () => {} }) {
       const stored = sessions.find(item => item.id === current.id);
       current = stored ? { ...structuredClone(stored), ...(keep ? pick(keep) : {}) } : emptySession();
     }
+    ai.info = await loadAi();
     render();
   }
 

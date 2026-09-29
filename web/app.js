@@ -277,6 +277,41 @@ async function renderDataPanel() {
   elements.backupNotice.textContent = notice;
 }
 
+// B: consents given in 학습실 step 3, newest first, each revocable here (PRD 4).
+async function renderAiConsents() {
+  const list = document.querySelector('#aiConsentList');
+  const consents = [...await localApi.aiConsents()].reverse();
+  if (consents.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'muted';
+    empty.textContent = '아직 남긴 동의가 없습니다.';
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(...consents.map(consent => {
+    const item = document.createElement('li');
+    item.dataset.consentId = consent.consentId;
+    const text = document.createElement('span');
+    text.textContent = `${consent.provider} · ${consent.allowedOperations.map(key => localApi.PURPOSES[key]).join(', ')}`
+      + ` · 교재 원문 ${consent.sourceRights === 'confirmed' ? '포함' : '빼고 요청'} · 동의 ${consent.grantedAt.slice(0, 10)}`
+      + (consent.revokedAt ? ` · 철회 ${consent.revokedAt.slice(0, 10)}` : '');
+    item.append(text);
+    if (!consent.revokedAt) {
+      const revoke = document.createElement('button');
+      revoke.type = 'button';
+      revoke.className = 'link-button danger-link';
+      revoke.textContent = '철회';
+      revoke.addEventListener('click', () => {
+        if (!window.confirm('이 동의를 철회합니다. 이미 AI 서비스에 붙여 넣은 내용은 되돌릴 수 없습니다. 철회할까요?')) return;
+        revoke.disabled = true;
+        localApi.revokeAiConsent(consent.consentId).then(renderAiConsents).catch(showError);
+      });
+      item.append(' ', revoke);
+    }
+    return item;
+  }));
+}
+
 function download(fileName, text) {
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -328,7 +363,10 @@ function showView() {
   if (name === 'source') sourceView.update().catch(showError);
   if (name === 'study') studyView.update().catch(showError);
   if (name === 'notes') notesView.update({ fresh: true }).catch(showError);
-  if (name === 'data') wikiView.update().catch(showError);
+  if (name === 'data') {
+    wikiView.update().catch(showError);
+    renderAiConsents().catch(showError);
+  }
 }
 
 if (localApi) {

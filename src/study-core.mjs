@@ -150,6 +150,7 @@ export function saveSession(previous, input, { id, now }) {
     reviewMinutes: reviewMinutes(input.reviewMinutes ?? previous?.reviewMinutes ?? REVIEW_MINUTES_DEFAULT),
     reviews: previous?.reviews ?? [],
     summary: previous?.summary ?? null,
+    aiReviews: previous?.aiReviews ?? [],
   };
 }
 
@@ -221,6 +222,7 @@ export function retakeSession(session, { id, now }) {
     missing: '', mistaken: '', unverified: '', revision: '', reflection: '', reviewDate: '',
     mainCause: '', otherCauses: [], nextAction: '', reviewMinutes: session.reviewMinutes ?? REVIEW_MINUTES_DEFAULT, reviews: [],
     summary: null,
+    aiReviews: [],
   };
 }
 
@@ -390,10 +392,12 @@ export function saveLog(previous, input, { id, now, session }) {
     title,
     content,
     sourceLocation: session.studiedSection ?? '',
-    sourcePages: (session.locked ? session.evidence : []).map(ref => ({ sourceTitle: ref.sourceTitle,
+    // An AI candidate is not grounded by the learner's evidence pages just because it was edited and approved.
+    sourcePages: previous?.origin === 'llm' ? previous.sourcePages : (session.locked ? session.evidence : []).map(ref => ({ sourceTitle: ref.sourceTitle,
       pdfPageIndex: ref.pdfPageIndex, printedPageLabel: ref.printedPageLabel ?? null })),
     verificationStatus,
-    status: previous?.status ?? 'approved',
+    // A pending AI candidate becomes approved when the learner saves it with their edits (「고쳐서 승인」).
+    status: previous ? (input.approve ? 'approved' : previous.status) : 'approved',
     origin: previous?.origin ?? 'manual',
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
@@ -419,7 +423,8 @@ export function summaryDraft(session, logs) {
   if (session.mainCause) {
     lines.push(`오답 원인: ${[session.mainCause, ...(session.otherCauses ?? [])].join(', ')}`);
   }
-  const own = logs.filter(log => log.sessionId === session.id && log.status !== 'ignored');
+  // Only what the learner approved goes into the summary (pending AI candidates are not the learner's yet).
+  const own = logs.filter(log => log.sessionId === session.id && log.status === 'approved');
   if (own.length > 0) lines.push('학습로그:', ...own.map(log => `- ${LOG_TYPES[log.type].label}: ${log.title}`));
   return { title: `${sessionTitle(session)} 학습 요약`.slice(0, 240), content: lines.join('\n') };
 }
@@ -438,4 +443,33 @@ export function approveSummary(session, { title, content }, { now }) {
       firstApprovedAt: session.summary?.firstApprovedAt ?? session.summary?.approvedAt ?? now },
     updatedAt: now,
   };
+}
+
+// ---- B: AI candidates (pending until the learner decides, as in Moa) ----
+
+// A learning-log candidate suggested by the learner's AI. Not grounded by default: the AI's claim is an estimate.
+export function candidateLog(candidate, { id, now, session, reviewId }) {
+  if (!LOG_TYPES[candidate.type]) throw new Error('학습로그 유형이 올바르지 않습니다.');
+  return {
+    id,
+    sessionId: session.id,
+    type: candidate.type,
+    title: String(candidate.title).slice(0, 240) || logTitle(candidate.type, candidate.content),
+    content: String(candidate.content).slice(0, 12000),
+    sourceLocation: session.studiedSection ?? '',
+    sourcePages: [],
+    verificationStatus: candidate.type === 'VERIFY' ? 'needs_verification' : 'llm_inferred',
+    status: 'pending',
+    origin: 'llm',
+    aiReviewId: reviewId ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+// 「승인」 or 「무시」 on a pending candidate; only pending ones can be decided (Moa: 이미 처리된 학습 로그입니다).
+export function decideLog(log, action, { now }) {
+  if (log.status !== 'pending') throw new Error('이미 처리한 학습로그입니다.');
+  if (!['approve', 'ignore'].includes(action)) throw new Error('처리 방법이 올바르지 않습니다.');
+  return { ...log, status: action === 'approve' ? 'approved' : 'ignored', updatedAt: now };
 }

@@ -6,9 +6,13 @@ import { calendarFor, eventBuilder, isPdfBytes, localDate, parseSetupFields, pla
   statusFor, studentError, studentPdfError, textlessPages, writePaths, writeResponse } from './src/app-core.mjs';
 import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
-import { approveSummary, completeBlocker, lockSession, MAX_LOGS, MAX_SESSIONS, noteItems, retakeSession, reviewCycle,
+import { approveSummary, candidateLog, completeBlocker, decideLog, lockSession, MAX_LOGS, MAX_SESSIONS, noteItems, retakeSession, reviewCycle,
   reviewDateBlocker, reviewTasks, saveLog, saveSession, sourcePages } from './src/study-core.mjs';
 import { buildWikiExport, checkWikiExport } from './src/wiki-export.mjs';
+import { activeConsent, buildRequest, MAX_AI_REVIEWS, newAiReview, newConsent, parseCandidates,
+  parseCauseSuggestion, PURPOSES } from './src/ai-bridge.mjs';
+
+export { PURPOSES };
 
 const DB_NAME = 'challenge-master';
 const STORE = 'kv';
@@ -284,8 +288,8 @@ function logsOf(values) {
 // Sessions and learning logs share the one 'study' document; a change that returns no logs keeps them as they were.
 async function changeSessions(keys, change) {
   const result = await transact(['study', ...keys], 'readwrite', (values, put) => {
-    const { sessions, logs, value } = change([...sessionsOf(values)], values, [...logsOf(values)]);
-    put('study', { ...(values.study ?? {}), schemaVersion: 1, sessions, logs: logs ?? logsOf(values) });
+    const { sessions, logs, value, extra } = change([...sessionsOf(values)], values, [...logsOf(values)]);
+    put('study', { ...(values.study ?? {}), ...(extra ?? {}), schemaVersion: 1, sessions, logs: logs ?? logsOf(values) });
     return value;
   });
   notify();
@@ -433,6 +437,83 @@ export async function approveStudySummary(sessionId, draftValues) {
     const index = findSession(sessions, sessionId);
     sessions[index] = approveSummary(sessions[index], draftValues, { now });
     return { sessions, value: sessions[index] };
+  });
+}
+
+// ---- B: the learner's own AI by copy and paste (PRD 4 consent; the app itself sends nothing) ----
+
+function consentsOf(values) {
+  return values.study?.aiConsents ?? [];
+}
+
+function evidenceSources(session) {
+  return [...new Set(session.evidence.map(ref => ref.sourceId))];
+}
+
+export async function aiConsents() {
+  const values = await transact(['study'], 'readonly', saved => saved);
+  return consentsOf(values);
+}
+
+// What the learner would copy now: the request, or what a consent must cover first.
+export async function aiRequest(sessionId, { provider, purpose }) {
+  const values = await transact(['study'], 'readonly', saved => saved);
+  const session = sessionsOf(values).find(item => item.id === sessionId);
+  if (!session) throw new Error('학습 기록을 찾을 수 없습니다. 새로고침해 주세요.');
+  const sourceIds = evidenceSources(session);
+  const consent = activeConsent(consentsOf(values), { provider, sourceIds, purpose });
+  if (!consent) {
+    return { consent: null, sourceIds, sourceTitles: [...new Set(session.evidence.map(ref => ref.sourceTitle))] };
+  }
+  return { consent, request: buildRequest(session, { purpose, includeSource: consent.sourceRights === 'confirmed' }) };
+}
+
+export async function grantAiConsent({ sessionId, provider, purpose, sourceRights }) {
+  const now = new Date().toISOString();
+  return changeSessions([], (sessions, values) => {
+    const session = sessions[findSession(sessions, sessionId)];
+    const consent = newConsent({ id: crypto.randomUUID(), provider, sourceIds: evidenceSources(session),
+      allowedOperations: [purpose], sourceRights, now });
+    return { sessions, extra: { aiConsents: [...consentsOf(values), consent] }, value: consent };
+  });
+}
+
+export async function revokeAiConsent(consentId) {
+  const now = new Date().toISOString();
+  return changeSessions([], (sessions, values) => {
+    const consents = consentsOf(values).map(consent => (consent.consentId === consentId && !consent.revokedAt
+      ? { ...consent, revokedAt: now } : consent));
+    return { sessions, extra: { aiConsents: consents }, value: null };
+  });
+}
+
+// The pasted answer: stored on the session as an AI estimate, its learning-log candidates added as pending logs.
+export async function saveAiReview(sessionId, { provider, purpose, response }) {
+  const now = new Date().toISOString();
+  return changeSessions([], (sessions, values, logs) => {
+    const index = findSession(sessions, sessionId);
+    const session = sessions[index];
+    const consent = activeConsent(consentsOf(values), { provider, sourceIds: evidenceSources(session), purpose });
+    if (!consent) throw new Error('이 서비스와 목적에 대한 동의가 없습니다. 먼저 동의해 주세요.');
+    if ((session.aiReviews ?? []).length >= MAX_AI_REVIEWS) throw new Error(`AI 검토는 기록마다 ${MAX_AI_REVIEWS}개까지 저장합니다.`);
+    const review = newAiReview({ id: crypto.randomUUID(), session, provider, purpose,
+      includedSource: consent.sourceRights === 'confirmed', consentId: consent.consentId, response, now });
+    const candidates = purpose === 'review' ? parseCandidates(review.response) : [];
+    if (logs.length + candidates.length > MAX_LOGS) throw new Error(`학습로그는 ${MAX_LOGS}개까지 저장합니다.`);
+    const added = candidates.map(candidate => candidateLog(candidate, { id: crypto.randomUUID(), now, session, reviewId: review.id }));
+    sessions[index] = { ...session, aiReviews: [...(session.aiReviews ?? []), review], updatedAt: now };
+    return { sessions, logs: [...logs, ...added],
+      value: { review, candidates: added.length, cause: purpose === 'cause' ? parseCauseSuggestion(review.response) : null } };
+  });
+}
+
+export async function decideStudyLog(id, action) {
+  const now = new Date().toISOString();
+  return changeSessions([], (sessions, _values, logs) => {
+    const index = logs.findIndex(log => log.id === id);
+    if (index < 0) throw new Error('학습로그를 찾을 수 없습니다. 새로고침해 주세요.');
+    logs[index] = decideLog(logs[index], action, { now });
+    return { sessions, logs, value: logs[index] };
   });
 }
 

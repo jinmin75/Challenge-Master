@@ -4,6 +4,7 @@
 //   wiki/학습로그/<stem>-<logId8>.md                one note per learning log (Moa kept these inside its app)
 //   wiki/자료원본/_챌린지마스터_인덱스.md, wiki/학습로그/_챌린지마스터_학습로그_인덱스.md, logs/challenge-master-export-*.jsonl
 // Keys match Moa's; only `kind` and the raw folder name differ so the origin stays visible. Pure (Web Crypto only).
+import { PURPOSES } from './ai-bridge.mjs';
 import { LOG_TYPES, sessionTitle, VERIFICATION } from './study-core.mjs';
 
 export const RAW_ROOT = 'raw/challenge-master';
@@ -85,6 +86,11 @@ function studyBody(session, logs, logLinks) {
     ...section('복습 메모', session.reflection),
     ...section('복습일', session.reviewDate),
     ...section('학습 요약', session.summary ? `**${session.summary.title}**\n\n${session.summary.content}` : ''),
+    // AI explanations stay apart from the textbook and the learner's own answers (PRD 4).
+    ...section('AI 검토(학생이 붙여 넣은 AI 추정 · 공식 채점 아님)', (session.aiReviews ?? []).map(review => [
+      `### ${PURPOSES[review.purpose]} · ${review.provider} · ${review.at.slice(0, 10)}${review.includedSource ? '' : ' · 교재 원문 없이 요청'}`,
+      '', review.response,
+    ].join('\n')).join('\n\n')),
     ...section('학습로그', logs.map((log, index) => `- ${LOG_TYPES[log.type].label}: [[${logLinks[index]}]]`).join('\n')),
   ];
 }
