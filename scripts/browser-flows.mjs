@@ -36,7 +36,7 @@ export function watchPage(page) {
 // calendarOf(date) returns the stored month for that date, read outside the screen.
 export async function calendarFlow(page, { calendarOf }) {
   const dayOf = async date => (await calendarOf(date)).days.find(day => day.date === date);
-  // C: the plan shows a colour summary; the full calendar opens in a dialog.
+  // C: the today screen shows a colour summary; the full calendar opens in a dialog.
   await page.locator('#calendarMini .mini-day[data-date]').first().waitFor();
   const cell = date => page.locator(`#calendarGrid .day[data-date="${date}"]`);
   const mini = date => page.locator(`#calendarMini .mini-day[data-date="${date}"]`);
@@ -64,11 +64,13 @@ export async function calendarFlow(page, { calendarOf }) {
   // The summary shows this month; the checks on its cells run when the three days fall in it (not on the 1st–3rd).
   const inSummary = offset(-3).slice(0, 7) === offset(0).slice(0, 7);
   if (inSummary) {
-    // Each unchecked day shows its state by colour and by a mark in the summary.
+    // Each day without a record shows it by colour and by a mark, and the today screen asks about them (D024).
     for (const day of [-3, -2, -1]) {
       assert.equal(await mini(offset(day)).locator('.mark').textContent(), '?');
     }
-    await page.waitForFunction(() => document.querySelector('#calendarSideSummary').textContent.includes('확인할 날 3일'));
+    await page.waitForFunction(() => document.querySelector('#calendarSideSummary').textContent.includes('기록 없는 날 3일'));
+    await page.locator('#pastAsk:not([hidden])').waitFor();
+    assert.match(await page.locator('#pastAsk').textContent(), /기록이 없어요\. 어땠어요\?/);
     // A summary day opens the dialog on that day; Esc closes it and returns focus to that day.
     await mini(offset(-3)).click();
     await page.waitForFunction(selected => document.querySelector('#calendarDialog').open
@@ -92,42 +94,46 @@ export async function calendarFlow(page, { calendarOf }) {
     assert.ok(await cell(offset(day)).evaluate(node => node.classList.contains('state-needs_review')), `${offset(day)} needs review`);
   }
 
-  // 1. Studied but did not record: late progress.
+  // A day without a record asks 「어땠어요?」 with three answers; only the one needing details opens fields.
   await openDay(offset(-3));
-  const lateChoice = page.locator('#dayBody .choice').nth(0);
-  await lateChoice.locator('input[type=number]').fill('10');
-  await lateChoice.getByRole('button', { name: '사후 기록' }).click();
+  await page.locator('#dayBody .answer-detail[hidden]').waitFor({ state: 'attached' });
+  await page.getByRole('button', { name: '공부했는데 적는 걸 깜빡했어요' }).click();
+  const late = page.locator('#dayBody .answer-detail');
+  await late.locator('input[type=number]').fill('10');
+  await late.getByRole('button', { name: '적기' }).click();
   await waitState(offset(-3), 'late');
   assert.equal((await dayOf(offset(-3))).lateMinutes, 10);
 
-  // 2. Did not study: missed + make-up tomorrow.
+  // Did not study: 「못 했어요」, then (optionally) a later day to make it up.
   await openDay(offset(-2));
-  const missedChoice = page.locator('#dayBody .choice').nth(1);
-  await missedChoice.locator('input[type=number]').fill('20');
-  await missedChoice.getByRole('button', { name: '누락 확인 + 보완 계획' }).click();
+  await page.getByRole('button', { name: '못 했어요' }).click();
   await waitState(offset(-2), 'missed');
+  await openDay(offset(-2));
+  await page.locator('#dayBody input[type=number]').fill('20');
+  await page.getByRole('button', { name: '채울 날 정하기' }).click();
+  await page.waitForFunction(day => document.querySelector(`#calendarGrid .day[data-date="${day}"]`)?.textContent
+    .includes('20분 채움'), offset(-2));
   assert.equal((await dayOf(offset(-2))).makeupScheduledFor, 20);
   assert.equal((await dayOf(offset(1))).makeupMinutes, 20);
 
-  // Over the one-day cap: the error is shown and nothing more is saved.
+  // Over the one-day cap: the error shows inside the dialog (the page behind is covered) and nothing more is saved.
   await openDay(offset(-2));
-  await page.locator('#dayBody .choice input[type=number]').fill('50');
-  await page.getByRole('button', { name: '보완 계획 추가' }).click();
-  // The page behind the dialog is covered, so the error shows inside the dialog.
+  await page.locator('#dayBody input[type=number]').fill('50');
+  await page.getByRole('button', { name: '채울 날 정하기' }).click();
   await page.locator('#calendarError:not([hidden])').waitFor();
   assert.match(await page.locator('#calendarError').textContent(), /하루 공부 시간\(60분\)까지/);
   assert.equal((await dayOf(offset(1))).makeupMinutes, 20);
 
-  // 3. A rest day.
+  // A rest day.
   await openDay(offset(-1));
   await page.getByRole('button', { name: '쉬는 날이었어요' }).click();
   await waitState(offset(-1), 'rest');
   assert.equal((await dayOf(offset(-1))).review.status, 'rest');
 
-  // The monthly check has nothing left to review for the current month.
+  // The month has nothing left to answer.
   if (offset(-1).slice(0, 7) === offset(0).slice(0, 7)) {
     await openDay(offset(0));
-    await page.waitForFunction(() => document.querySelector('#needsReviewList')?.textContent.includes('확인이 필요한 날이 없습니다'));
+    await page.waitForFunction(() => document.querySelector('#needsReviewList')?.textContent.includes('어땠는지 알려 줄 날이 없어요'));
     assert.equal((await calendarOf(offset(0))).needsReview.length, 0);
   }
 
@@ -138,18 +144,21 @@ export async function calendarFlow(page, { calendarOf }) {
   await page.click('#calendarPrev');
   await page.waitForFunction(before => document.querySelector('#calendarTitle').textContent === before, title);
 
-  // The summary follows what was chosen in the dialog.
+  // The summary follows what was answered in the dialog, and the today screen stops asking.
   if (inSummary) {
     assert.equal(await mini(offset(-3)).locator('.mark').textContent(), '↺');
     assert.equal(await mini(offset(-2)).locator('.mark').textContent(), '×');
     assert.equal(await mini(offset(-1)).locator('.mark').textContent(), '–');
+    assert.equal(await page.locator('#pastAsk').isHidden(), true);
   }
   if (offset(1).slice(0, 7) === offset(0).slice(0, 7)) assert.equal(await mini(offset(1)).locator('.plus').count(), 1);
   await closeDialog();
   assert.equal(await page.locator('#calendarError').isHidden(), true, 'a closed dialog keeps no old error');
 
-  // Recording today's study through the existing form refreshes the calendar too.
-  await page.locator('#minutesInput').fill('5');
-  await page.locator('#progressForm button[type=submit]').click();
-  await page.waitForFunction(day => document.querySelector(`#calendarGrid .day[data-date="${day}"]`)?.textContent.includes('확인 5'), offset(0));
+  // Recording part of today's study on the today screen refreshes the calendar too.
+  await page.click('#partButton');
+  await page.fill('#minutesInput', '5');
+  await page.locator('#partForm button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('#todayMessage').textContent.startsWith('5분 적었어요'));
+  await page.waitForFunction(day => document.querySelector(`#calendarGrid .day[data-date="${day}"]`)?.textContent.includes('오늘5 / '), offset(0));
 }

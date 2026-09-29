@@ -45,9 +45,9 @@ function eventBase(type) {
 // ---- Setup (PDF registration form) ----
 
 export function parsePositiveInt(value, field) {
-  if (!/^[1-9]\d*$/.test(String(value).trim())) throw new Error(`${field} 값은 1 이상의 정수여야 합니다.`);
+  if (!/^[1-9]\d*$/.test(String(value).trim())) throw new Error(`${field}: 1 이상의 숫자로 적어 주세요.`);
   const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${field} 값은 1 이상의 정수여야 합니다.`);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${field}: 1 이상의 숫자로 적어 주세요.`);
   return parsed;
 }
 
@@ -55,18 +55,18 @@ function taskKindFromText(value = '') {
   const normalized = value.trim().toLowerCase();
   if (['review', '복습', '확인', '확인·교정'].includes(normalized)) return 'review';
   if (['new', '새 내용', '새내용', '새 범위', '새범위', ''].includes(normalized)) return 'new';
-  throw new Error('공부 범위 종류는 새 내용 또는 복습으로 입력해 주세요.');
+  throw new Error('종류는 「새로 공부」나 「복습」으로 골라 주세요.');
 }
 
 function parseSetupTasks(value) {
   const lines = value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  if (lines.length === 0) throw new Error('공부 범위를 한 줄 이상 입력해 주세요.');
-  if (lines.length > 30) throw new Error('공부 범위는 30개 이하로 입력해 주세요.');
+  if (lines.length === 0) throw new Error('공부할 것을 하나 이상 적어 주세요.');
+  if (lines.length > 30) throw new Error('공부할 것은 30개까지 적을 수 있어요.');
   return lines.map((line, index) => {
     const [titleRaw, minutesRaw, kindRaw] = line.split('|').map(part => part.trim());
-    if (!titleRaw) throw new Error(`${index + 1}번째 공부 범위 제목을 입력해 주세요.`);
-    if (titleRaw.length > 120) throw new Error(`${index + 1}번째 공부 범위 제목이 너무 깁니다.`);
-    const minutes = minutesRaw ? parsePositiveInt(minutesRaw, `${index + 1}번째 공부 범위 시간`) : 30;
+    if (!titleRaw) throw new Error(`${index + 1}번째 공부할 것의 이름을 적어 주세요.`);
+    if (titleRaw.length > 120) throw new Error(`${index + 1}번째 공부할 것의 이름이 너무 길어요.`);
+    const minutes = minutesRaw ? parsePositiveInt(minutesRaw, `${index + 1}번째 공부할 것의 시간`) : 30;
     const kind = taskKindFromText(kindRaw);
     return { title: titleRaw, minutes, kind };
   });
@@ -75,14 +75,17 @@ function parseSetupTasks(value) {
 // field(name) returns the trimmed text of a form field ('' when missing).
 export function parseSetupFields(field) {
   const title = field('title') || '내 학습 자료';
-  if (title.length > 120) throw new Error('자료 제목이 너무 깁니다.');
+  if (title.length > 120) throw new Error('자료 이름이 너무 길어요.');
   const dailyMinutes = parsePositiveInt(field('dailyMinutes'), '하루 공부 시간');
-  const weeklyMinutes = parsePositiveInt(field('weeklyMinutes'), '이번 주 공부 시간');
+  // D024: the weekly field is gone from the screen; without it the week holds seven ordinary days.
+  const weeklyMinutes = field('weeklyMinutes') ? parsePositiveInt(field('weeklyMinutes'), '이번 주 공부 시간') : dailyMinutes * 7;
   const tasks = parseSetupTasks(field('tasks'));
-  const start = parsePositiveInt(field('pageStart') || '1', '시작 페이지');
-  const end = parsePositiveInt(field('pageEnd') || String(start), '끝 페이지');
-  if (end < start) throw new Error('끝 페이지는 시작 페이지보다 작을 수 없습니다.');
-  if (end - start + 1 > 30) throw new Error('한 번에 추출할 수 있는 페이지는 30쪽 이하입니다.');
+  // Both page fields left blank: the first 30 pages of the PDF (the reader finds out how many there are).
+  if (!field('pageStart') && !field('pageEnd')) return { title, dailyMinutes, weeklyMinutes, tasks, selectedPages: null };
+  const start = parsePositiveInt(field('pageStart') || '1', '시작 쪽');
+  const end = parsePositiveInt(field('pageEnd') || String(start), '끝 쪽');
+  if (end < start) throw new Error('끝 쪽은 시작 쪽보다 앞일 수 없어요.');
+  if (end - start + 1 > 30) throw new Error('한 번에 30쪽까지 읽을 수 있어요.');
   const selectedPages = Array.from({ length: end - start + 1 }, (_, index) => start + index);
   return { title, dailyMinutes, weeklyMinutes, tasks, selectedPages };
 }
@@ -100,14 +103,14 @@ export function isPdfBytes(bytes) {
 // The extractor reports in English; students see these messages directly on the setup screen.
 export function studentPdfError(message = '') {
   if (message.includes('page outside PDF')) {
-    return '끝 페이지가 PDF의 전체 쪽수보다 큽니다. PDF 뷰어에서 전체 쪽수를 확인한 뒤 다시 입력해 주세요.';
+    return '끝 쪽이 PDF 전체 쪽수보다 커요. PDF 보기 프로그램에서 전체 쪽수를 확인해 주세요.';
   }
-  if (message.includes('encrypted PDF')) return '암호가 걸린 PDF는 등록할 수 없습니다.';
+  if (message.includes('encrypted PDF')) return '암호가 걸린 PDF는 넣을 수 없어요.';
   if (message.includes('cannot open PDF') || message.includes('not a PDF')) {
-    return 'PDF 파일을 열 수 없습니다. 파일이 손상되지 않았는지 확인해 주세요.';
+    return 'PDF 파일을 열 수 없어요. 파일이 망가지지 않았는지 확인해 주세요.';
   }
-  if (message.includes('exceeds 50 MiB')) return 'PDF 파일이 너무 큽니다.';
-  return `PDF에서 글자를 뽑아내지 못했습니다. (${message})`;
+  if (message.includes('exceeds 50 MiB')) return 'PDF 파일이 너무 커요(50MB까지).';
+  return `PDF에서 글자를 읽지 못했어요. (${message})`;
 }
 
 // Pages that yielded no text (scans or blank pages); the screen must not call them drafts.
@@ -147,7 +150,7 @@ export function planInputFromSetup(setup) {
 }
 
 function pageStatusList(setup) {
-  const summary = setup.source.extraction?.summary;
+  const summary = setup.source?.extraction?.summary;
   if (!summary) return [];
   // Setups saved before v0.6 have no textlessPages; report their text state as unknown (null).
   const textless = setup.source.extraction.textlessPages;
@@ -182,7 +185,8 @@ export function publicSetup(setup, storage = 'local') {
     weeklyMinutes: setup.weeklyMinutes,
     tasks: setup.tasks,
     archiveFile: setup.archiveFile ?? null,
-    source: {
+    // A browser setup may have no PDF yet (D024: the textbook can be added later).
+    source: !setup.source ? null : {
       originalName: setup.source.originalName,
       sizeBytes: setup.source.sizeBytes,
       extractionStatus: setup.source.extractionStatus,
@@ -198,8 +202,8 @@ export function publicSetup(setup, storage = 'local') {
 // ---- Plans and status ----
 
 function parseMinutes(value, field, { allowZero = false } = {}) {
-  if (!Number.isSafeInteger(value)) throw new Error(`${field} 값은 정수여야 합니다.`);
-  if (allowZero ? value < 0 : value <= 0) throw new Error(`${field} 값이 허용 범위를 벗어났습니다.`);
+  if (!Number.isSafeInteger(value)) throw new Error(`${field}: 숫자로 적어 주세요.`);
+  if (allowZero ? value < 0 : value <= 0) throw new Error(`${field}: 적을 수 있는 범위를 넘었어요.`);
   return value;
 }
 
@@ -320,7 +324,7 @@ function summarizeState(state, baseInput) {
   try {
     weeklyForecast = weeklyForecastFor(baseInput, state);
   } catch (error) {
-    weeklyForecastError = `주간 예측을 갱신하지 못했습니다: ${error.message}`;
+    weeklyForecastError = `이번 주 미리 보기를 만들지 못했어요: ${error.message}`;
   }
   return {
     currentPlan,
@@ -363,7 +367,9 @@ export function statusFor(state, runtime) {
 }
 
 function startDateOf(runtime) {
-  return runtime.setup?.source?.uploadedAt ? localDate(new Date(runtime.setup.source.uploadedAt)) : null;
+  // The day the plan was set up; a PDF added later does not move it (older setups only have the upload time).
+  const at = runtime.setup?.createdAt ?? runtime.setup?.source?.uploadedAt;
+  return at ? localDate(new Date(at)) : null;
 }
 
 export function calendarFor(state, month, runtime) {
@@ -379,16 +385,16 @@ export function calendarFor(state, month, runtime) {
 
 // Store-layer messages are English; these reach students on the calendar screen.
 const studentMessages = [
-  ['Only past days can be reviewed', '어제까지의 날짜만 확인할 수 있습니다.'],
-  ['Day already reviewed', '이미 확인한 날짜입니다.'],
-  ['Day already has study records', '공부 기록이 있는 날은 누락이나 휴식으로 확인할 수 없습니다.'],
-  ['Late progress is only for past days', '사후 기록은 어제까지의 날짜에만 남길 수 있습니다. 오늘 공부는 「실제 공부 시간 기록」에 적어 주세요.'],
-  ['Day was reviewed as missed or rest', '누락이나 휴식으로 확인한 날에는 사후 기록을 남길 수 없습니다.'],
-  ['Late progress exceeds the remaining task estimate', '그 과업의 남은 분량보다 많이 적을 수 없습니다.'],
-  ['Unknown task or plan version', '계획에 없던 과업입니다.'],
-  ['Make-up time is only for future days', '보완할 날은 내일 이후로 골라 주세요.'],
-  ['Make-up requires a day reviewed as missed', '누락으로 확인한 날에만 보완 계획을 잡을 수 있습니다.'],
-  ['Invalid review status', '확인 종류가 올바르지 않습니다.'],
+  ['Only past days can be reviewed', '어제까지의 날만 알려 줄 수 있어요.'],
+  ['Day already reviewed', '이미 알려 준 날이에요.'],
+  ['Day already has study records', '공부한 기록이 있는 날은 「못 했어요」나 「쉬는 날이었어요」로 바꿀 수 없어요.'],
+  ['Late progress is only for past days', '나중에 적기는 어제까지의 날에만 할 수 있어요. 오늘 공부는 「오늘」 화면에서 적어 주세요.'],
+  ['Day was reviewed as missed or rest', '「못 했어요」나 「쉬는 날이었어요」로 알려 준 날에는 나중에 적을 수 없어요.'],
+  ['Late progress exceeds the remaining task estimate', '그 공부에 남은 시간보다 많이 적을 수 없어요.'],
+  ['Unknown task or plan version', '계획에 없던 공부예요.'],
+  ['Make-up time is only for future days', '채울 날은 내일부터 골라 주세요.'],
+  ['Make-up requires a day reviewed as missed', '「못 했어요」로 알려 준 날만 채울 날을 정할 수 있어요.'],
+  ['Invalid review status', '알 수 없는 답이에요.'],
 ];
 
 export function studentError(error) {
@@ -405,7 +411,7 @@ function requestIdOf(body) {
 }
 
 function minutesOf(value, field) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${field}은 1 이상의 정수로 적어 주세요.`);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${field}: 1 이상의 숫자로 적어 주세요.`);
   return value;
 }
 
@@ -457,7 +463,7 @@ export function eventBuilder(path, body, runtime) {
             previous.completedMinutes !== minutes) throw new Error('requestId가 다른 기록에 사용됐습니다.');
         return previous;
       }
-      if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
+      if (!before.currentPlan) throw new Error('오늘 할 것이 아직 없어요. 「오늘」 화면을 다시 열어 주세요.');
       return {
         ...eventBase('task_progress_recorded'), id: body.requestId ?? newId(),
         taskId: body.taskId,
@@ -469,7 +475,7 @@ export function eventBuilder(path, body, runtime) {
   }
   if (path === '/api/attempt') {
     return before => {
-      if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
+      if (!before.currentPlan) throw new Error('오늘 할 것이 아직 없어요. 「오늘」 화면을 다시 열어 주세요.');
       return {
         ...eventBase('attempt_recorded'),
         taskId: body.taskId,
@@ -484,7 +490,7 @@ export function eventBuilder(path, body, runtime) {
   if (path === '/api/shorten') {
     const availableMinutes = parseMinutes(body.availableMinutes, 'availableMinutes', { allowZero: true });
     return before => {
-      if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
+      if (!before.currentPlan) throw new Error('오늘 할 것이 아직 없어요. 「오늘」 화면을 다시 열어 주세요.');
       return {
         ...eventBase('plan_created'),
         plan: planFromProgress(planInputFor({ ...body, availableMinutes }, baseInput), withLateCredit(before)),
@@ -501,7 +507,7 @@ export function eventBuilder(path, body, runtime) {
   }
   if (path === '/api/skip') {
     return before => {
-      if (!before.currentPlan) throw new Error('계획을 먼저 시작해 주세요.');
+      if (!before.currentPlan) throw new Error('오늘 할 것이 아직 없어요. 「오늘」 화면을 다시 열어 주세요.');
       return {
         ...eventBase('noncompletion_confirmed'),
         taskId: body.taskId,
@@ -520,7 +526,7 @@ function calendarEventBuilder(path, body, runtime) {
   const assertAfterStart = (state, date) => {
     const start = startDateOf(runtime) ?? state.plans[0]?.date ?? null;
     if (typeof date === 'string' && (start === null || date < start)) {
-      throw new Error('공부 계획을 등록하기 전 날짜에는 확인이나 사후 기록을 남길 수 없습니다.');
+      throw new Error('계획을 만들기 전의 날은 알려 주거나 나중에 적을 수 없어요.');
     }
   };
   if (path === '/api/day-review') {
@@ -532,7 +538,7 @@ function calendarEventBuilder(path, body, runtime) {
   }
   if (path === '/api/late-progress') {
     const id = requestIdOf(body);
-    const minutes = minutesOf(body.minutes, '공부한 분');
+    const minutes = minutesOf(body.minutes, '몇 분');
     return once(id, before => {
       assertAfterStart(before, body.date);
       return { type: 'late_progress_recorded', at, date: body.date, taskId: body.taskId, minutes, learnerConfirmed: true };
@@ -545,7 +551,7 @@ function calendarEventBuilder(path, body, runtime) {
       const planned = makeupMinutesOn(before, body.date);
       const isReplay = before.events.some(item => item.id === id);
       if (!isReplay && planned + minutes > dailyMinutes) {
-        throw new Error(`한 날짜에 더할 수 있는 보완 시간은 하루 공부 시간(${dailyMinutes}분)까지입니다. 이미 ${planned}분이 잡혀 있습니다.`);
+        throw new Error(`한 날에 더할 수 있는 시간은 하루 공부 시간(${dailyMinutes}분)까지예요. 이미 ${planned}분이 잡혀 있어요.`);
       }
       return { type: 'makeup_scheduled', at, date: body.date, minutes, forDate: body.forDate };
     });

@@ -357,7 +357,7 @@ test('weekly forecast error does not hide a saved daily plan', async () => {
     const started = await request(baseUrl, '/api/start', { date: '2026-09-23' });
     assert.equal(started.currentPlan.planVersion, 1);
     assert.equal(started.weeklyForecast, null);
-    assert.match(started.weeklyForecastError, /주간 예측을 갱신하지 못했습니다/);
+    assert.match(started.weeklyForecastError, /이번 주 미리 보기를 만들지 못했어요/);
     assert.equal(readStore(storeFile).events.length, 1);
   }, { ...planInput, weekDays: [
     { date: '2026-09-24', availableMinutes: 30 },
@@ -371,8 +371,8 @@ test('static UI is served from the local web root', async () => {
     assert.equal(response.status, 200);
     const html = await response.text();
     assert.match(html, /Challenge Master/);
-    assert.match(html, /내 PDF로 공부 계획 만들기/);
-    assert.match(html, /실제 공부 시간 기록/);
+    assert.match(html, /무엇을 공부하나요/);
+    assert.match(html, /다 했어요/);
   });
 });
 
@@ -497,7 +497,7 @@ test('student setup rejects descending or too-wide page ranges before extraction
     const response = await fetch(`${baseUrl}/api/setup`, { method: 'POST', body: form });
     const data = await response.json();
     assert.equal(response.status, 400);
-    assert.match(data.error, /끝 페이지/);
+    assert.match(data.error, /끝 쪽/);
     assert.equal(convertCalls.length, 0);
   }, { pdfConverter: fakePdfConverter(convertCalls) });
 });
@@ -515,7 +515,7 @@ test('student setup removes a newly saved PDF when extraction fails', async () =
     const response = await fetch(`${baseUrl}/api/setup`, { method: 'POST', body: form });
     const data = await response.json();
     assert.equal(response.status, 400);
-    assert.match(data.error, /끝 페이지가 PDF의 전체 쪽수보다 큽니다/);
+    assert.match(data.error, /끝 쪽이 PDF 전체 쪽수보다 커요/);
     assert.equal(existsSync(configFile), false);
     assert.deepEqual(existsSync(sourceDir) ? readdirSync(sourceDir) : [], []);
   }, { pdfConverter: () => {
@@ -605,7 +605,7 @@ test('failed replacement extraction keeps the previous setup and current plan', 
     });
     const failed = await response.json();
     assert.equal(response.status, 400);
-    assert.match(failed.error, /끝 페이지가 PDF의 전체 쪽수보다 큽니다/);
+    assert.match(failed.error, /끝 쪽이 PDF 전체 쪽수보다 커요/);
     assert.equal(readFileSync(configFile, 'utf8'), beforeConfig);
     assert.equal(readFileSync(storeFile, 'utf8'), beforeStore);
 
@@ -1010,7 +1010,7 @@ test('student setup rejects partial integer strings before extraction', async ()
       const response = await fetch(`${baseUrl}/api/setup`, { method: 'POST', body: form });
       const data = await response.json();
       assert.equal(response.status, 400);
-      assert.match(data.error, /정수/);
+      assert.match(data.error, /숫자로 적어 주세요/);
       assert.equal(convertCalls.length, 0);
       assert.deepEqual(existsSync(sourceDir) ? readdirSync(sourceDir) : [], []);
     }, { pdfConverter: fakePdfConverter(convertCalls) });
@@ -1039,9 +1039,9 @@ test('quit endpoint is localhost guarded and closes the local server', async () 
 });
 
 test('extractor errors reach the student in Korean', () => {
-  assert.match(studentPdfError('PDF extraction failed: page outside PDF'), /끝 페이지가 PDF의 전체 쪽수보다 큽니다/);
-  assert.equal(studentPdfError('PDF extraction failed: encrypted PDF is not supported'), '암호가 걸린 PDF는 등록할 수 없습니다.');
-  assert.match(studentPdfError('PDF extraction failed: cannot open PDF: bad xref'), /PDF 파일을 열 수 없습니다/);
-  assert.match(studentPdfError('input is not a PDF'), /PDF 파일을 열 수 없습니다/);
-  assert.equal(studentPdfError('something unexpected'), 'PDF에서 글자를 뽑아내지 못했습니다. (something unexpected)');
+  assert.match(studentPdfError('PDF extraction failed: page outside PDF'), /끝 쪽이 PDF 전체 쪽수보다 커요/);
+  assert.equal(studentPdfError('PDF extraction failed: encrypted PDF is not supported'), '암호가 걸린 PDF는 넣을 수 없어요.');
+  assert.match(studentPdfError('PDF extraction failed: cannot open PDF: bad xref'), /PDF 파일을 열 수 없어요/);
+  assert.match(studentPdfError('input is not a PDF'), /PDF 파일을 열 수 없어요/);
+  assert.equal(studentPdfError('something unexpected'), 'PDF에서 글자를 읽지 못했어요. (something unexpected)');
 });

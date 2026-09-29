@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EVIDENCE_TEXT_LIMIT, lockBlocker, lockSession, MAX_EVIDENCE, retakeSession, saveBlocker, saveSession,
-  sessionStatus, sessionTitle } from '../src/study-core.mjs';
+import { addEvidence, causeLabel, CAUSES, EVIDENCE_TEXT_LIMIT, lockBlocker, lockSession, MAX_EVIDENCE, questionWords,
+  retakeSession, saveBlocker, saveSession, sessionStatus, sessionTitle, STUDENT_CAUSES, suggestEvidence } from '../src/study-core.mjs';
 
 const now = '2026-09-29T10:00:00.000Z';
 const later = '2026-09-29T11:00:00.000Z';
@@ -17,9 +17,9 @@ const input = { subject: '교육학', goal: '평가 유형 구분', question: '�
   firstAnswer: '형성평가는 수업 중, 총괄평가는 끝에.', evidence: [{ sourceId: 'local-pdf-a', pdfPageIndex: 1 }] };
 
 test('a session needs a question and a first answer before it can be saved (answer before looking)', () => {
-  assert.equal(saveBlocker({ question: '', firstAnswer: 'a' }), '문제를 먼저 입력하세요.');
-  assert.match(saveBlocker({ question: 'q', firstAnswer: '  ' }), /첫 답안을 먼저/);
-  assert.throws(() => saveSession(null, { ...input, firstAnswer: '' }, { id: 's1', now }), /첫 답안을 먼저/);
+  assert.equal(saveBlocker({ question: '', firstAnswer: 'a' }), '문제를 먼저 적어 주세요.');
+  assert.match(saveBlocker({ question: 'q', firstAnswer: '  ' }), /내 답을 먼저/);
+  assert.throws(() => saveSession(null, { ...input, firstAnswer: '' }, { id: 's1', now }), /내 답을 먼저/);
   const saved = saveSession(null, input, { id: 's1', now });
   assert.equal(saved.id, 's1');
   assert.equal(saved.locked, false);
@@ -27,11 +27,41 @@ test('a session needs a question and a first answer before it can be saved (answ
   assert.equal(sessionTitle(saved), '교육학 · 평가 유형 구분');
 });
 
-test('comparison cannot start without evidence, and says why', () => {
-  assert.equal(lockBlocker(null), '먼저 1단에서 기록을 저장하세요.');
+test('comparison starts without chosen pages too (no textbook, or no matching page): D024', () => {
+  assert.match(lockBlocker(null), /먼저 적어 주세요/);
   const saved = saveSession(null, { ...input, evidence: [] }, { id: 's1', now });
-  assert.match(lockBlocker(saved), /1개 이상 고르세요/);
-  assert.throws(() => lockSession(saved, source, { now }), /1개 이상 고르세요/);
+  assert.equal(lockBlocker(saved), null);
+  const locked = lockSession(saved, null, { now });
+  assert.deepEqual([locked.locked, locked.evidence], [true, []]);
+});
+
+test('the question\'s words find the textbook pages to compare with; pages can be added after comparison starts', () => {
+  assert.deepEqual(questionWords('형성평가의 목적과 결과 활용 방식을 총괄평가와 비교하여 설명하시오.'),
+    ['형성평가', '목적', '결과', '활용', '총괄평가']);
+  const book = { sourceId: 'b', title: '책', pages: [
+    { pdfPageIndex: 1, state: 'draft', text: '총괄평가는 끝에 한다.' },
+    { pdfPageIndex: 2, state: 'draft', text: '형성평가의 목적은 개선이다. 형성평가 결과는 피드백.' },
+    { pdfPageIndex: 3, state: 'textless', text: '' },
+    { pdfPageIndex: 4, state: 'draft', text: '관계없는 쪽' },
+  ] };
+  assert.deepEqual(suggestEvidence('형성평가의 목적과 결과 활용 방식을 총괄평가와 비교하여 설명하시오.', book),
+    [{ sourceId: 'b', pdfPageIndex: 2 }, { sourceId: 'b', pdfPageIndex: 1 }], 'most matches first, at most two');
+  assert.deepEqual(suggestEvidence('무관한 질문', book), []);
+  assert.deepEqual(suggestEvidence('형성평가', null), []);
+  const locked = lockSession(saveSession(null, { ...input, evidence: [] }, { id: 's1', now }), book, { now });
+  const more = addEvidence(locked, book, 4, { now: later });
+  assert.deepEqual(more.evidence.map(ref => [ref.pdfPageIndex, ref.text]), [[4, '관계없는 쪽']]);
+  assert.equal(addEvidence(more, book, 4, { now: later }), more, 'the same page twice is a no-op');
+  assert.throws(() => addEvidence(more, book, 3, { now }), /찾을 수 없어요/);
+  assert.throws(() => addEvidence(saveSession(null, input, { id: 's2', now }), book, 1, { now }), /맞춰 보기를 먼저/);
+});
+
+test('four plain reasons stand for four of the seven exam-vault causes (D024)', () => {
+  assert.deepEqual(STUDENT_CAUSES.map(item => item.label), ['몰랐어요', '헷갈렸어요', '문제를 잘못 읽었어요', '시간이 없었어요']);
+  assert.ok(STUDENT_CAUSES.every(item => CAUSES.includes(item.cause)));
+  assert.equal(causeLabel('비슷한 개념과 혼동함'), '헷갈렸어요');
+  assert.equal(causeLabel('근거 없이 추정함'), '근거 없이 추정함', 'older records show their stored cause');
+  assert.equal(causeLabel(''), '');
 });
 
 test('locking copies the evidence text and freezes question, first answer and evidence', () => {
@@ -59,9 +89,9 @@ test('locking copies the evidence text and freezes question, first answer and ev
 
 test('locking refuses evidence that is no longer in the registered source', () => {
   const saved = saveSession(null, { ...input, evidence: [{ sourceId: 'old-pdf', pdfPageIndex: 1 }] }, { id: 's1', now });
-  assert.throws(() => lockSession(saved, source, { now }), /지금 교재에서 찾을 수 없습니다/);
+  assert.throws(() => lockSession(saved, source, { now }), /지금 교재에서 찾을 수 없어요/);
   const textless = saveSession(null, { ...input, evidence: [{ sourceId: 'local-pdf-a', pdfPageIndex: 2 }] }, { id: 's2', now });
-  assert.throws(() => lockSession(textless, source, { now }), /2단에서 근거를 다시/);
+  assert.throws(() => lockSession(textless, source, { now }), /쪽을 다시 골라/);
 });
 
 test('evidence is limited, unique, and review dates must be dates', () => {

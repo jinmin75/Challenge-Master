@@ -1,54 +1,63 @@
 import { createCalendar } from './calendar.js';
 
 // The web version (D022) keeps records in this browser instead of asking the local app's server.
+// D024: three tabs (오늘 · 문제 풀기 · 보관함) in plain spoken words; opening the page shows today's work at once.
 const browserMode = document.documentElement.dataset.mode === 'browser';
 const localApi = browserMode ? await import('./local-api.js') : null;
 const sourceModule = browserMode ? await import('./source-view.js') : null;
-const studyModule = browserMode ? await import('./study-view.js') : null;
+const solveModule = browserMode ? await import('./solve-view.js') : null;
 const notesModule = browserMode ? await import('./notes-view.js') : null;
 const wikiModule = browserMode ? await import('./wiki-export-view.js') : null;
 const BACKUP_REMINDER_DAYS = 7;
 
+const $ = selector => document.querySelector(selector);
 const elements = {
-  recommendation: document.querySelector('#recommendation'),
-  contract: document.querySelector('#contract'),
-  sourceLabel: document.querySelector('#sourceLabel'),
-  errorMessage: document.querySelector('#errorMessage'),
-  startButton: document.querySelector('#startButton'),
-  quitButton: document.querySelector('#quitButton'),
-  setupPanel: document.querySelector('#setupPanel'),
-  setupForm: document.querySelector('#setupForm'),
-  setupStatus: document.querySelector('#setupStatus'),
-  extractionPanel: document.querySelector('#extractionPanel'),
-  extractionPages: document.querySelector('#extractionPages'),
-  progressForm: document.querySelector('#progressForm'),
-  shortenForm: document.querySelector('#shortenForm'),
-  restButton: document.querySelector('#restButton'),
-  skipButton: document.querySelector('#skipButton'),
-  taskSelect: document.querySelector('#taskSelect'),
-  minutesInput: document.querySelector('#minutesInput'),
-  availableInput: document.querySelector('#availableInput'),
-  planVersion: document.querySelector('#planVersion'),
-  assignedMinutes: document.querySelector('#assignedMinutes'),
-  confirmedMinutes: document.querySelector('#confirmedMinutes'),
-  coverage: document.querySelector('#coverage'),
-  allocations: document.querySelector('#allocations'),
-  warning: document.querySelector('#warning'),
-  weekObserved: document.querySelector('#weekObserved'),
-  weekTentative: document.querySelector('#weekTentative'),
-  weekDeferred: document.querySelector('#weekDeferred'),
-  weekAllocations: document.querySelector('#weekAllocations'),
-  weekWarning: document.querySelector('#weekWarning'),
-  backupNotice: document.querySelector('#backupNotice'),
-  dataPanel: document.querySelector('#dataPanel'),
-  storageStatus: document.querySelector('#storageStatus'),
-  backupButton: document.querySelector('#backupButton'),
-  restoreButton: document.querySelector('#restoreButton'),
-  restoreInput: document.querySelector('#restoreInput'),
-  clearButton: document.querySelector('#clearButton'),
+  errorMessage: $('#errorMessage'),
+  firstRun: $('#firstRun'),
+  firstRunEyebrow: $('#firstRunEyebrow'),
+  firstRunTitle: $('#firstRunTitle'),
+  setupForm: $('#setupForm'),
+  taskRows: $('#taskRows'),
+  addTaskRow: $('#addTaskRow'),
+  dailyChips: $('#dailyChips'),
+  dailyCustom: $('#dailyCustom'),
+  dailyMinutesInput: $('#dailyMinutesInput'),
+  pdfInput: $('#pdfInput'),
+  tasksInput: $('#tasksInput'),
+  titleInput: $('#titleInput'),
+  setupCancel: $('#setupCancel'),
+  setupStatus: $('#setupStatus'),
+  todayMain: $('#todayMain'),
+  calendarSide: $('#calendarSide'),
+  backupNotice: $('#backupNotice'),
+  nowLabel: $('#nowLabel'),
+  nowTitle: $('#nowTitle'),
+  doneButton: $('#doneButton'),
+  partButton: $('#partButton'),
+  restButton: $('#restButton'),
+  unrestButton: $('#unrestButton'),
+  partForm: $('#partForm'),
+  minutesInput: $('#minutesInput'),
+  todayMessage: $('#todayMessage'),
+  quitButton: $('#quitButton'),
+  allocations: $('#allocations'),
+  shortenForm: $('#shortenForm'),
+  availableInput: $('#availableInput'),
+  weekAllocations: $('#weekAllocations'),
+  weekWarning: $('#weekWarning'),
+  storageStatus: $('#storageStatus'),
+  backupButton: $('#backupButton'),
+  restoreButton: $('#restoreButton'),
+  restoreInput: $('#restoreInput'),
+  clearButton: $('#clearButton'),
+  setupAgain: $('#setupAgain'),
+  bookStatus: $('#bookStatus'),
+  attachForm: $('#attachForm'),
 };
-let visibleAllocations = [];
 let busy = false;
+let lastStatus = null;
+let chosenTaskId = null;
+let editingSetup = false;
 
 function localDateIso(date = new Date()) {
   const year = date.getFullYear();
@@ -65,40 +74,43 @@ async function api(path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? '요청 실패');
+  if (!response.ok) throw new Error(data.error ?? '요청을 처리하지 못했어요.');
   return data;
 }
 
 // While the calendar dialog is open the page behind it is covered, so its errors show inside the dialog.
 function errorNode() {
-  return document.querySelector('#calendarDialog')?.open ? document.querySelector('#calendarError') : elements.errorMessage;
+  return $('#calendarDialog')?.open ? $('#calendarError') : elements.errorMessage;
 }
 
 function showError(error) {
   const node = errorNode();
   node.hidden = false;
-  node.textContent = error.message || '요청을 처리하지 못했습니다.';
+  node.textContent = error.message || '요청을 처리하지 못했어요.';
 }
 
 function clearError() {
-  for (const node of [elements.errorMessage, document.querySelector('#calendarError')]) {
+  for (const node of [elements.errorMessage, $('#calendarError')]) {
     if (!node) continue;
     node.hidden = true;
     node.textContent = '';
   }
 }
 
+// Runs one action with every control disabled; returns true when it succeeded.
 async function run(action) {
-  if (busy) return;
+  if (busy) return false;
   busy = true;
   const controls = [...document.querySelectorAll('button, input, select, textarea')];
   const disabledBefore = controls.map(control => control.disabled);
   controls.forEach(control => { control.disabled = true; });
   let status;
+  let ok = true;
   try {
     clearError();
     status = await action();
   } catch (error) {
+    ok = false;
     showError(error);
   } finally {
     controls.forEach((control, index) => { control.disabled = disabledBefore[index]; });
@@ -107,163 +119,191 @@ async function run(action) {
   if (status) {
     try { render(status); } catch (error) { showError(error); }
   }
+  return ok;
 }
 
-function optionFor(item) {
-  const option = document.createElement('option');
-  option.value = item.taskId;
-  option.textContent = `${item.title} (${item.minutes}분)`;
-  return option;
+// ---- 처음 설정 (first run and 「새로 정하기」) ----
+
+function taskRow({ title = '', minutes = '', kind = 'new' } = {}) {
+  const li = document.createElement('li');
+  li.className = 'task-row';
+  li.innerHTML = `
+    <input class="task-title" type="text" maxlength="120" aria-label="공부할 것" placeholder="예: 4장 교육평가 유형">
+    <label class="task-minutes">시간<input type="number" min="1" step="1" aria-label="걸릴 시간(분)" placeholder="60">분</label>
+    <select class="task-kind" aria-label="새로 공부 또는 복습"><option value="new">새로 공부</option><option value="review">복습</option></select>
+    <button type="button" class="link-button task-remove">빼기</button>`;
+  li.querySelector('.task-title').value = title;
+  li.querySelector('.task-minutes input').value = minutes;
+  li.querySelector('.task-kind').value = kind;
+  li.querySelector('.task-remove').addEventListener('click', () => {
+    if (elements.taskRows.children.length > 1) li.remove();
+    else li.querySelector('.task-title').value = '';
+  });
+  return li;
+}
+
+function resetSetupForm() {
+  elements.taskRows.replaceChildren(taskRow(), taskRow({ kind: 'review' }));
+  chooseDaily('60');
+  elements.pdfInput.value = '';
+}
+
+function chooseDaily(minutes) {
+  for (const chip of elements.dailyChips.querySelectorAll('.chip')) {
+    chip.setAttribute('aria-pressed', String(chip.dataset.minutes === minutes));
+  }
+  elements.dailyCustom.hidden = minutes !== '';
+  if (minutes) elements.dailyMinutesInput.value = minutes;
+}
+
+// The form fields the shared rules read (app-core parseSetupFields): one 「제목 | 분 | 종류」 line per row.
+function fillSetupFields() {
+  const rows = [...elements.taskRows.querySelectorAll('.task-row')]
+    .map(row => ({
+      title: row.querySelector('.task-title').value.trim().replaceAll('|', '/'),
+      minutes: row.querySelector('.task-minutes input').value.trim() || '60',
+      kind: row.querySelector('.task-kind').value,
+    }))
+    .filter(row => row.title);
+  if (rows.length === 0) throw new Error('공부할 것을 하나 이상 적어 주세요.');
+  elements.tasksInput.value = rows.map(row => `${row.title} | ${row.minutes} | ${row.kind === 'new' ? '새 내용' : '복습'}`).join('\n');
+  const file = elements.pdfInput.files[0];
+  elements.titleInput.value = file ? file.name.replace(/\.pdf$/i, '').slice(0, 120) : rows[0].title.slice(0, 120);
+}
+
+function openSetupAgain() {
+  editingSetup = true;
+  resetSetupForm();
+  elements.firstRunEyebrow.textContent = '공부할 것 바꾸기';
+  elements.firstRunTitle.textContent = '새로 무엇을 공부하나요?';
+  elements.setupCancel.hidden = false;
+  location.hash = '#today';
+  if (lastStatus) render(lastStatus);
+}
+
+// ---- 오늘 ----
+
+function kindLabel(item) {
+  if (item.taskId.startsWith('note:')) return '다시 볼 문제';
+  return item.kind === 'new' ? '새로 공부' : '복습';
+}
+
+// The web version needs its own setup; the installer app (kept in reserve) may run on a fixed input file or on plans
+// made before this screen existed.
+function isConfigured(status) {
+  if (status.setup?.configured === true) return true;
+  return !browserMode && ((status.planSource && status.planSource !== 'synthetic_demo') || Boolean(status.currentPlan));
 }
 
 function render(status) {
+  lastStatus = status;
+  const configured = isConfigured(status);
+  const setupShown = !configured || editingSetup;
+  elements.firstRun.hidden = !setupShown;
+  elements.todayMain.hidden = setupShown;
+  elements.calendarSide.hidden = setupShown;
+  document.querySelector('#view-today').classList.toggle('setup-mode', setupShown);
+  if (!configured && !editingSetup && elements.taskRows.children.length === 0) resetSetupForm();
+
   const plan = status.currentPlan;
-  elements.recommendation.textContent = status.recommendedAction.label;
-  elements.contract.textContent = status.progressContract;
-  elements.sourceLabel.textContent = sourceText(status);
-  elements.setupPanel.classList.toggle('configured', status.setup?.configured === true);
-  elements.setupStatus.textContent = status.setup?.message
-    ?? '새 자료를 등록하면 현재 계획 기록은 별도 파일로 보존하고, 새 계획은 빈 기록에서 시작합니다.';
-  renderExtraction(status.setup);
-  elements.planVersion.textContent = plan?.planVersion ?? '-';
-  elements.startButton.textContent = plan ? '남은 과업 다시 배정' : '오늘 시작';
-  elements.assignedMinutes.textContent = plan ? `${plan.assignedMinutes}분` : '-';
-  elements.confirmedMinutes.textContent = `${status.confirmedProgressMinutes}분`;
-  elements.coverage.textContent = ({ infeasible: '현재 시간으로 전체 완료 어려움', within_time: '현재 범위 유지',
-    unknown: '전체 범위 미확인' })[plan?.goalCoverageStatus] ?? '-';
-  elements.warning.textContent = plan?.warning ?? '';
+  const allocations = plan?.allocations ?? [];
+  const chosen = allocations.find(item => item.taskId === chosenTaskId) ?? allocations[0] ?? null;
+  chosenTaskId = chosen?.taskId ?? null;
+  const rest = Boolean(plan) && allocations.length === 0 && (plan.deferred ?? []).some(item => item.reason === 'rest_day');
+  elements.doneButton.hidden = !chosen;
+  elements.partButton.hidden = !chosen;
+  elements.restButton.hidden = !chosen;
+  elements.unrestButton.hidden = !rest;
+  if (!chosen) elements.partForm.hidden = true;
+  if (chosen) {
+    elements.nowLabel.textContent = `지금 할 것 · ${kindLabel(chosen)}`;
+    elements.nowTitle.textContent = `${chosen.title} · ${chosen.minutes}분`;
+    elements.minutesInput.max = String(chosen.minutes);
+    if (Number(elements.minutesInput.value) > chosen.minutes) elements.minutesInput.value = String(chosen.minutes);
+  } else if (rest) {
+    elements.nowLabel.textContent = '오늘';
+    elements.nowTitle.textContent = '오늘은 쉬는 날이에요.';
+  } else if (plan && plan.assignedMinutes > 0) {
+    elements.nowLabel.textContent = '오늘';
+    elements.nowTitle.textContent = '오늘 할 것을 다 했어요.';
+  } else if (plan) {
+    elements.nowLabel.textContent = '오늘';
+    elements.nowTitle.textContent = '오늘 할 것이 없어요. 「보관함 → 공부할 것 바꾸기」에서 새로 정할 수 있어요.';
+  } else {
+    elements.nowLabel.textContent = '오늘';
+    elements.nowTitle.textContent = '오늘 할 것을 만들고 있어요.';
+  }
+
+  elements.allocations.replaceChildren(...(allocations.length === 0
+    ? [Object.assign(document.createElement('li'), { className: 'muted', textContent: '남은 것이 없어요.' })]
+    : allocations.map(item => {
+      const li = document.createElement('li');
+      li.className = 'today-item';
+      const pick = document.createElement('button');
+      pick.type = 'button';
+      pick.className = 'task-pick';
+      pick.setAttribute('aria-pressed', String(item.taskId === chosenTaskId));
+      pick.innerHTML = '<span class="task-name"></span><span class="task-meta"></span>';
+      pick.querySelector('.task-name').textContent = item.title;
+      pick.querySelector('.task-meta').textContent = `${item.minutes}분 · ${kindLabel(item)}`;
+      pick.addEventListener('click', () => {
+        chosenTaskId = item.taskId;
+        elements.todayMessage.textContent = '';
+        render(lastStatus);
+      });
+      const skip = document.createElement('button');
+      skip.type = 'button';
+      skip.className = 'link-button';
+      skip.textContent = '건너뛰기';
+      skip.setAttribute('aria-label', `${item.title} 건너뛰기`);
+      skip.addEventListener('click', async () => {
+        if (await run(() => api('/api/skip', { taskId: item.taskId }))) {
+          elements.todayMessage.textContent = `「${item.title}」은 건너뛰었어요. 뒤 계획으로 넘어가요.`;
+        }
+      });
+      li.append(pick, skip);
+      return li;
+    })));
+
   renderWeek(status.weeklyForecast, status.weeklyForecastError);
   calendar.update(status.calendar).catch(showError);
   if (localApi) {
     renderDataPanel().catch(showError);
-    if (currentView() === 'source') sourceView.update().catch(showError);
-    if (currentView() === 'study') studyView.update().catch(showError);
-    if (currentView() === 'notes') notesView.update().catch(showError);
-    if (currentView() === 'data') wikiView.update().catch(showError);
-    updateNotesTab().catch(showError);
+    if (currentView() === 'solve') solveView.update().catch(showError);
+    if (currentView() === 'keep') updateKeep().catch(showError);
   }
-
-  visibleAllocations = plan?.allocations ?? [];
-  elements.taskSelect.replaceChildren(...visibleAllocations.map(optionFor));
-  elements.progressForm.querySelector('button').disabled = visibleAllocations.length === 0;
-  elements.skipButton.disabled = visibleAllocations.length === 0;
-  elements.allocations.replaceChildren(...(plan?.allocations ?? []).map(item => {
-    const li = document.createElement('li');
-    li.textContent = `${item.title}: ${item.minutes}분 (${item.kind === 'new' ? '새 범위' : '확인·교정'})`;
-    return li;
-  }));
-
-  syncMinutesLimit();
-}
-
-function sourceText(status) {
-  if (status.setup?.configured) return `로컬 PDF: ${status.setup.source.originalName}`;
-  if (status.planSource && status.planSource !== 'synthetic_demo') return `로컬 입력: ${status.planSource}`;
-  return '합성 데모 입력입니다. 먼저 PDF와 공부 범위를 등록해 주세요.';
-}
-
-function renderExtraction(setup) {
-  const pages = setup?.source?.pages ?? [];
-  elements.extractionPanel.hidden = pages.length === 0;
-  elements.extractionPages.replaceChildren(...pages.map(page => {
-    const li = document.createElement('li');
-    const textless = page.status !== 'failed' && page.hasText === false;
-    const statusLabel = page.status === 'failed' ? '추출 실패'
-      : textless ? '글자 없음(스캔 또는 빈 쪽)' : '추출 초안';
-    li.textContent = `${page.pdfPageIndex}쪽 · ${statusLabel} · 원본 대조 필요`;
-    li.className = textless ? 'textless' : page.status;
-    return li;
-  }));
-}
-
-function syncMinutesLimit() {
-  const selected = visibleAllocations.find(item => item.taskId === elements.taskSelect.value);
-  if (!selected) return;
-  elements.minutesInput.max = String(selected.minutes);
-  elements.minutesInput.value = String(Math.min(Number(elements.minutesInput.value) || selected.minutes, selected.minutes));
 }
 
 function renderWeek(week, error) {
   if (!week) {
-    elements.weekObserved.textContent = '-';
-    elements.weekTentative.textContent = '-';
-    elements.weekDeferred.textContent = '-';
     elements.weekAllocations.replaceChildren();
-    elements.weekWarning.textContent = error ?? '주간 예측이 없습니다.';
+    elements.weekWarning.textContent = error ?? '';
     return;
   }
-  const deferredMinutes = week.deferredScope.reduce((sum, item) => sum + item.minutes, 0);
-  elements.weekObserved.textContent = `확인 ${week.totalObservedCompletedMinutes}분`;
-  elements.weekTentative.textContent = `예정 ${week.totalTentativeMinutes}분`;
-  elements.weekDeferred.textContent = `미배정 ${deferredMinutes}분`;
-  elements.weekWarning.textContent = week.warning ?? '';
+  elements.weekWarning.textContent = '';
   elements.weekAllocations.replaceChildren(...week.tentativeAllocations.slice(0, 8).map(item => {
     const li = document.createElement('li');
-    li.textContent = `${item.date} · ${item.title}: ${item.minutes}분 예정`;
+    const date = new Date(`${item.date}T00:00:00`);
+    li.textContent = `${date.getMonth() + 1}월 ${date.getDate()}일 · ${item.title} ${item.minutes}분`;
     return li;
   }));
 }
 
+// Opening the page makes today's plan when there is none for today yet (D024: no 「오늘 시작」 step).
 async function refresh() {
-  render(await api('/api/status'));
+  let status = await api('/api/status');
+  const today = localDateIso();
+  if (isConfigured(status) && (!status.currentPlan || status.currentPlan.date !== today)) {
+    try {
+      status = await api('/api/start', { date: today });
+    } catch (error) {
+      showError(error);
+    }
+  }
+  render(status);
 }
 
-elements.startButton.addEventListener('click', () => {
-  run(() => api('/api/start', { date: localDateIso() }));
-});
-elements.quitButton.addEventListener('click', () => {
-  run(async () => {
-    const data = await api('/api/quit', {});
-    elements.recommendation.textContent = data.message;
-    elements.contract.textContent = '창을 닫아 주세요.';
-    return null;
-  });
-});
-elements.taskSelect.addEventListener('change', syncMinutesLimit);
-
-elements.setupForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  // Collect the fields before run() disables every control: FormData skips disabled fields,
-  // so building it inside run() sent an empty upload from real browsers.
-  const body = new FormData(elements.setupForm);
-  run(async () => {
-    if (localApi) return localApi.setup(body);
-    const response = await fetch('/api/setup', {
-      method: 'POST',
-      body,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? '설정을 저장하지 못했습니다.');
-    return data;
-  });
-});
-
-elements.progressForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  run(() => api('/api/progress', {
-    requestId: crypto.randomUUID(),
-    taskId: elements.taskSelect.value,
-    completedMinutes: Number(elements.minutesInput.value),
-  }));
-});
-
-elements.shortenForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  run(() => api('/api/shorten', {
-    date: localDateIso(),
-    availableMinutes: Number(elements.availableInput.value),
-  }));
-});
-
-elements.restButton.addEventListener('click', () => {
-  run(() => api('/api/rest', { date: localDateIso() }));
-});
-
-elements.skipButton.addEventListener('click', () => {
-  run(() => api('/api/skip', { taskId: elements.taskSelect.value }));
-});
-
-const calendar = createCalendar({ api, run, today: localDateIso });
+// ---- 보관함 ----
 
 function daysSince(iso) {
   return (Date.now() - new Date(iso).getTime()) / 86_400_000;
@@ -272,46 +312,58 @@ function daysSince(iso) {
 async function renderDataPanel() {
   const info = await localApi.storageInfo();
   const lines = [info.lastBackupAt
-    ? `마지막 백업 파일 저장: ${localDateIso(new Date(info.lastBackupAt))}.`
-    : '아직 백업 파일을 저장하지 않았습니다.'];
-  if (info.persisted === false) lines.push('이 브라우저는 오래 쓰지 않은 사이트의 기록을 정리할 수 있습니다. 백업 파일을 자주 저장해 주세요.');
+    ? `마지막 보관: ${localDateIso(new Date(info.lastBackupAt))}.`
+    : '아직 보관 파일을 저장하지 않았어요.'];
+  if (info.persisted === false) lines.push('이 브라우저는 오래 쓰지 않은 사이트의 기록을 지울 수 있어요. 가끔 보관해 주세요.');
   elements.storageStatus.textContent = lines.join(' ');
   let notice = '';
-  if (info.hasRecords && !info.lastBackupAt) {
-    notice = '아직 백업 파일을 저장하지 않았습니다. 「내 기록」 탭에서 한 번 저장해 두세요.';
-  } else if (info.hasRecords && daysSince(info.lastBackupAt) >= BACKUP_REMINDER_DAYS) {
-    notice = `마지막 백업 파일을 저장한 지 ${BACKUP_REMINDER_DAYS}일이 지났습니다. 「내 기록」 탭에서 새로 저장해 두세요.`;
+  if (info.hasRecords && !info.lastBackupAt) notice = '기록을 파일로 한 번 보관해 두세요.';
+  else if (info.hasRecords && daysSince(info.lastBackupAt) >= BACKUP_REMINDER_DAYS) {
+    notice = `보관한 지 ${BACKUP_REMINDER_DAYS}일이 지났어요. 새로 보관해 두세요.`;
   }
   elements.backupNotice.hidden = notice === '';
-  elements.backupNotice.textContent = notice;
+  if (notice) {
+    const link = Object.assign(document.createElement('a'), { href: '#keep', textContent: '보관함에서 저장하기' });
+    elements.backupNotice.replaceChildren(`${notice} `, link);
+  }
 }
 
-// B: consents given in 학습실 step 3, newest first, each revocable here (PRD 4).
+function renderBook(setup) {
+  const source = setup?.source ?? null;
+  if (!source) {
+    elements.bookStatus.textContent = '아직 넣은 교재가 없어요. PDF를 넣으면 「문제 풀기」에서 내 답을 교재와 맞춰 볼 수 있어요.';
+    $('#attachButton').textContent = '교재 넣기';
+    return;
+  }
+  const pages = source.pages ?? [];
+  const textless = pages.filter(page => page.hasText === false).length;
+  elements.bookStatus.textContent = `${source.originalName} · ${pages.length}쪽을 읽었어요`
+    + (textless > 0 ? ` (글자가 없는 쪽 ${textless}쪽은 그림이나 스캔이라 글자를 못 읽었어요)` : '') + '.';
+  $('#attachButton').textContent = '다른 교재로 바꾸기';
+}
+
+// 「AI 허락」: consents given in 문제 풀기, newest first, each can be taken back (PRD 4).
 async function renderAiConsents() {
-  const list = document.querySelector('#aiConsentList');
+  const list = $('#aiConsentList');
   const consents = [...await localApi.aiConsents()].reverse();
   if (consents.length === 0) {
-    const empty = document.createElement('li');
-    empty.className = 'muted';
-    empty.textContent = '아직 남긴 동의가 없습니다.';
-    list.replaceChildren(empty);
+    list.replaceChildren(Object.assign(document.createElement('li'), { className: 'muted', textContent: '아직 남긴 허락이 없어요.' }));
     return;
   }
   list.replaceChildren(...consents.map(consent => {
     const item = document.createElement('li');
     item.dataset.consentId = consent.consentId;
     const text = document.createElement('span');
-    text.textContent = `${consent.provider} · ${consent.allowedOperations.map(key => localApi.PURPOSES[key]).join(', ')}`
-      + ` · 교재 원문 ${consent.sourceRights === 'confirmed' ? '포함' : '빼고 요청'} · 동의 ${consent.grantedAt.slice(0, 10)}`
-      + (consent.revokedAt ? ` · 철회 ${consent.revokedAt.slice(0, 10)}` : '');
+    text.textContent = `${consent.provider} · 교재 원문 ${consent.sourceRights === 'confirmed' ? '함께 보냄' : '빼고 보냄'}`
+      + ` · ${consent.grantedAt.slice(0, 10)}` + (consent.revokedAt ? ` · 거둠 ${consent.revokedAt.slice(0, 10)}` : '');
     item.append(text);
     if (!consent.revokedAt) {
       const revoke = document.createElement('button');
       revoke.type = 'button';
       revoke.className = 'link-button danger-link';
-      revoke.textContent = '철회';
+      revoke.textContent = '거두기';
       revoke.addEventListener('click', () => {
-        if (!window.confirm('이 동의를 철회합니다. 이미 AI 서비스에 붙여 넣은 내용은 되돌릴 수 없습니다. 철회할까요?')) return;
+        if (!window.confirm('이 허락을 거둘까요? 이미 AI에 붙여 넣은 내용은 되돌릴 수 없어요.')) return;
         revoke.disabled = true;
         localApi.revokeAiConsent(consent.consentId).then(renderAiConsents).catch(showError);
       });
@@ -319,6 +371,22 @@ async function renderAiConsents() {
     }
     return item;
   }));
+}
+
+// fresh: opening the tab starts clean; a redraw after an action keeps the notes that action left.
+async function updateKeep({ fresh = false } = {}) {
+  // Marks when every list of the tab has been drawn (tests wait for it before typing).
+  viewNodes.keep.removeAttribute('data-loaded');
+  await Promise.all([
+    notesView.update({ fresh }),
+    solveView.renderSolved($('#solvedList')),
+    sourceView.update(),
+    wikiView.update(),
+    renderAiConsents(),
+    renderDataPanel(),
+  ]);
+  renderBook(lastStatus?.setup);
+  viewNodes.keep.setAttribute('data-loaded', '');
 }
 
 function download(fileName, text) {
@@ -331,58 +399,155 @@ function download(fileName, text) {
   setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
 }
 
-// Web version screens (D023): tabs switch views by the address hash, so back/forward and bookmarks work.
-const VIEWS = ['plan', 'source', 'study', 'notes', 'data'];
-const viewNodes = { plan: document.querySelector('#view-plan'), source: document.querySelector('#view-source'),
-  study: document.querySelector('#view-study'), notes: document.querySelector('#view-notes'),
-  data: document.querySelector('#view-data') };
+// ---- views: the address hash picks the tab, so back/forward and bookmarks work ----
+
+const VIEWS = ['today', 'solve', 'keep'];
+// Addresses from v0.9 (bookmarks, the old guide) still land on the tab that now holds that screen.
+const OLD_VIEWS = { plan: 'today', study: 'solve', source: 'keep', notes: 'keep', data: 'keep' };
+const viewNodes = { today: $('#view-today'), solve: $('#view-solve'), keep: $('#view-keep') };
+const calendar = createCalendar({ api, run, today: localDateIso });
 const sourceView = sourceModule ? sourceModule.createSourceView({ load: () => localApi.sourceView() }) : null;
-const studyView = studyModule ? studyModule.createStudyView({ api: localApi, onChange: () => updateNotesTab() }) : null;
+const solveView = solveModule ? solveModule.createSolveView({ api: localApi, onChange: () => refresh() }) : null;
 const notesView = notesModule ? notesModule.createNotesView({
   api: localApi,
   openInStudy: id => {
-    studyView.open(id, 4);
-    location.hash = '#study';
+    solveView.open(id);
+    location.hash = '#solve';
   },
-  // A recorded review changes today's plan numbers; redraw the plan tab too.
   afterChange: () => refresh(),
 }) : null;
-
 const wikiView = wikiModule ? wikiModule.createWikiExportView({ api: localApi }) : null;
-
-// The tab shows how many 오답 reviews are due now.
-async function updateNotesTab() {
-  const due = (await localApi.notesView()).filter(item => item.dueNow).length;
-  document.querySelector('#notesTab').textContent = due > 0 ? `오답노트 (${due})` : '오답노트';
-}
 
 function currentView() {
   const name = location.hash.slice(1);
-  return VIEWS.includes(name) ? name : 'plan';
+  if (OLD_VIEWS[name]) return OLD_VIEWS[name];
+  return VIEWS.includes(name) ? name : 'today';
 }
 
 function showView() {
   const name = currentView();
+  if (OLD_VIEWS[location.hash.slice(1)]) history.replaceState(null, '', `#${name}`);
   for (const [view, node] of Object.entries(viewNodes)) node.hidden = view !== name;
   for (const link of document.querySelectorAll('#appTabs a')) {
     link.setAttribute('aria-current', link.dataset.view === name ? 'page' : 'false');
   }
-  // The plan tab re-reads the records: study and 오답노트 actions change today's review tasks.
-  if (name === 'plan') refresh().catch(showError);
-  if (name === 'source') sourceView.update().catch(showError);
-  if (name === 'study') studyView.update().catch(showError);
-  if (name === 'notes') notesView.update({ fresh: true }).catch(showError);
-  if (name === 'data') {
-    wikiView.update().catch(showError);
-    renderAiConsents().catch(showError);
-  }
+  if (name === 'today') refresh().catch(showError);
+  if (name === 'solve') solveView.update().catch(showError);
+  if (name === 'keep') updateKeep({ fresh: true }).catch(showError);
 }
 
+// ---- events ----
+
+elements.dailyChips.addEventListener('click', event => {
+  const chip = event.target.closest('.chip');
+  if (!chip) return;
+  chooseDaily(chip.dataset.minutes);
+  if (!chip.dataset.minutes) elements.dailyMinutesInput.focus();
+});
+elements.addTaskRow.addEventListener('click', () => {
+  if (elements.taskRows.children.length >= 30) return;
+  const row = taskRow();
+  elements.taskRows.append(row);
+  row.querySelector('.task-title').focus();
+});
+elements.setupCancel.addEventListener('click', () => {
+  editingSetup = false;
+  elements.setupCancel.hidden = true;
+  if (lastStatus) render(lastStatus);
+});
+elements.setupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    fillSetupFields();
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  if (editingSetup && !window.confirm('계획을 처음부터 다시 만들어요. 지금까지의 공부 시간 기록은 이 브라우저 안에 따로 보관돼요. 계속할까요?')) return;
+  // Collect the fields before run() disables every control: FormData skips disabled fields,
+  // so building it inside run() sent an empty upload from real browsers.
+  const body = new FormData(elements.setupForm);
+  elements.setupStatus.textContent = elements.pdfInput.files[0] ? '교재를 읽고 있어요. 쪽이 많으면 조금 걸려요.' : '';
+  const ok = await run(async () => {
+    const status = localApi ? await localApi.setup(body) : await (async () => {
+      const response = await fetch('/api/setup', { method: 'POST', body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? '설정을 저장하지 못했어요.');
+      return data;
+    })();
+    editingSetup = false;
+    elements.setupCancel.hidden = true;
+    elements.firstRunEyebrow.textContent = '처음 한 번만';
+    elements.firstRunTitle.textContent = '무엇을 공부하나요?';
+    return api('/api/start', { date: localDateIso() }).catch(() => status);
+  });
+  elements.setupStatus.textContent = ok ? '' : '기록은 이 브라우저에만 저장돼요. 다른 브라우저나 시크릿 창에서는 보이지 않아요.';
+});
+
+function chosenAllocation() {
+  return (lastStatus?.currentPlan?.allocations ?? []).find(item => item.taskId === chosenTaskId) ?? null;
+}
+
+async function record(item, minutes) {
+  const ok = await run(() => api('/api/progress', { requestId: crypto.randomUUID(), taskId: item.taskId, completedMinutes: minutes }));
+  if (!ok) return;
+  elements.partForm.hidden = true;
+  const next = chosenAllocation();
+  elements.todayMessage.textContent = `${minutes}분 적었어요.` + (next ? ` 다음은 「${next.title}」예요.` : '');
+}
+
+elements.doneButton.addEventListener('click', () => {
+  const item = chosenAllocation();
+  if (item) record(item, item.minutes);
+});
+elements.partButton.addEventListener('click', () => {
+  elements.partForm.hidden = false;
+  elements.minutesInput.focus();
+});
+elements.partForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const item = chosenAllocation();
+  if (item) record(item, Number(elements.minutesInput.value));
+});
+elements.restButton.addEventListener('click', async () => {
+  if (await run(() => api('/api/rest', { date: localDateIso() }))) {
+    elements.todayMessage.textContent = '오늘은 쉬는 날로 적었어요. 남은 것은 뒤로 넘어가요.';
+  }
+});
+elements.unrestButton.addEventListener('click', async () => {
+  if (await run(() => api('/api/start', { date: localDateIso() }))) elements.todayMessage.textContent = '';
+});
+elements.shortenForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (await run(() => api('/api/shorten', { date: localDateIso(), availableMinutes: Number(elements.availableInput.value) }))) {
+    elements.todayMessage.textContent = '남은 시간에 맞춰 오늘 할 것을 줄였어요.';
+  }
+});
+elements.quitButton.addEventListener('click', () => {
+  run(async () => {
+    const data = await api('/api/quit', {});
+    elements.nowTitle.textContent = data.message;
+    elements.todayMessage.textContent = '창을 닫아 주세요.';
+    return null;
+  });
+});
+
 if (localApi) {
-  elements.quitButton.hidden = true;
   document.querySelector('#appTabs').hidden = false;
-  showView();
-  window.addEventListener('hashchange', showView);
+  elements.setupAgain.addEventListener('click', openSetupAgain);
+  elements.attachForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!$('#attachInput').files[0]) {
+      showError(new Error('PDF 파일을 골라 주세요.'));
+      return;
+    }
+    if (lastStatus?.setup?.source && !window.confirm('교재를 바꿀까요? 푼 문제에 저장된 교재 글은 그대로 남아요.')) return;
+    const body = new FormData(elements.attachForm);
+    elements.bookStatus.textContent = '교재를 읽고 있어요. 쪽이 많으면 조금 걸려요.';
+    await run(() => localApi.attachSource(body));
+    elements.attachForm.reset();
+    await updateKeep().catch(showError);
+  });
   elements.backupButton.addEventListener('click', () => {
     run(async () => {
       const backup = await localApi.exportBackup();
@@ -396,17 +561,19 @@ if (localApi) {
     const file = elements.restoreInput.files[0];
     elements.restoreInput.value = '';
     if (!file) return;
-    if (!window.confirm('지금 이 브라우저의 기록을 백업 파일의 기록으로 바꿉니다. 계속할까요?')) return;
+    if (!window.confirm('지금 이 브라우저의 기록을 보관 파일의 기록으로 바꿔요. 계속할까요?')) return;
     run(async () => localApi.importBackup(await file.text()));
   });
   elements.clearButton.addEventListener('click', () => {
-    if (!window.confirm('이 브라우저에 저장된 자료 설정과 공부 기록을 모두 지웁니다. 백업 파일이 없으면 되돌릴 수 없습니다. 지울까요?')) return;
-    run(() => localApi.clearAll());
+    if (!window.confirm('이 브라우저의 기록을 모두 지워요. 보관 파일이 없으면 되돌릴 수 없어요. 지울까요?')) return;
+    // Nothing is left to keep: start again from the first-run question.
+    run(() => localApi.clearAll()).then(ok => { if (ok) location.hash = '#today'; });
   });
   // Another tab of this app changed the records; show them here too.
   localApi.onChange(() => { refresh().catch(showError); });
+  window.addEventListener('hashchange', showView);
+  showView();
+} else {
+  elements.quitButton.hidden = false;
+  refresh().catch(showError);
 }
-
-refresh().catch(error => {
-  showError(error);
-});

@@ -30,7 +30,8 @@ test('a note has a main cause; other causes exclude it, and review minutes are b
   const session = note();
   assert.equal(isNote(session), true);
   assert.deepEqual(session.otherCauses, [CAUSES[2]]);
-  assert.equal(isNote(note({ mainCause: '' })), false);
+  assert.equal(isNote(note({ mainCause: '' })), true, 'a chosen day to see it again is enough (D024)');
+  assert.equal(isNote(note({ reviewDate: '' })), false);
   assert.throws(() => note({ mainCause: '아무 원인' }), /목록에서 고르세요/);
   assert.throws(() => note({ reviewMinutes: 3 }), /5~120분/);
 });
@@ -45,7 +46,7 @@ test('a due note enters the day plan as a review task and is done when its minut
   let cycle = reviewCycle(sessions[0], state, '2026-10-01');
   assert.deepEqual([cycle.planned, cycle.inCurrentPlan, cycle.done], [true, true, false]);
   assert.equal(completeBlocker(cycle), null);
-  assert.match(reviewDateBlocker(sessions[0], state, '2026-10-01'), /계획에 들어가 있습니다/);
+  assert.match(reviewDateBlocker(sessions[0], state, '2026-10-01'), /할 일에 들어가 있어요/);
 
   state = record(state, taskId, 10, '2026-10-01');
   cycle = reviewCycle(sessions[0], state, '2026-10-01');
@@ -81,15 +82,15 @@ test('a review that never entered a plan can be marked done directly; a planned 
       tasks: [...base, ...reviewTasks({ sessions: [session], state, today: '2026-10-02' })] }, state) });
   const cycle = reviewCycle(session, state, '2026-10-02');
   assert.equal(cycle.inCurrentPlan, false);
-  assert.match(completeBlocker(cycle), /남은 과업 다시 배정/);
-  assert.match(completeBlocker(reviewCycle({ ...session, reviewDate: '2026-10-09' }, state, '2026-10-02')), /2026-10-09에/);
-  assert.match(completeBlocker(null), /복습일이 없습니다/);
+  assert.match(completeBlocker(cycle), /할 일에 다시 들어간 날/);
+  assert.match(completeBlocker(reviewCycle({ ...session, reviewDate: '2026-10-09' }, state, '2026-10-02')), /10월 9일에/);
+  assert.match(completeBlocker(null), /다시 볼 날을 먼저/);
 });
 
 test('the 오답노트 lists due reviews first with overdue days', () => {
   const due = note();
   const later = { ...note({ reviewDate: '2026-10-20' }), id: 's2', updatedAt: '2026-09-29T12:00:00.000Z' };
-  const plain = { ...note({ mainCause: '' }), id: 's3' };
+  const plain = { ...note({ reviewDate: '' }), id: 's3' };
   const items = noteItems({ sessions: [later, plain, due], state: emptyState(), today: '2026-10-03' });
   assert.deepEqual(items.map(item => item.session.id), ['s1', 's2']);
   assert.equal(items[0].dueNow, true);
@@ -108,7 +109,7 @@ test('a due review pushed out of a full review share says so, instead of pointin
   assert.ok(pushed.length > 0, 'some reviews are deferred today');
   for (const cycle of pushed) {
     assert.equal(cycle.planned, true);
-    assert.match(completeBlocker(cycle), /복습 몫이 차서/);
+    assert.match(completeBlocker(cycle), /복습 시간이 다 차서/);
   }
   assert.equal(cycles.filter(cycle => cycle.inCurrentPlan).every(cycle => completeBlocker(cycle) === null), true);
 });

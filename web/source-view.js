@@ -3,10 +3,10 @@
 import { matchRanges, searchPages } from './src/study-core.mjs';
 
 const STATE_LABELS = {
-  draft: '추출 초안 · 원본 대조 필요',
-  textless: '글자 없음(스캔 또는 빈 쪽)',
-  failed: '추출 실패',
-  missing: '추출 결과 없음',
+  draft: '글자 읽음',
+  textless: '글자 없음(그림이나 스캔)',
+  failed: '못 읽음',
+  missing: '읽은 결과 없음',
 };
 
 function el(tag, attributes = {}, ...children) {
@@ -21,7 +21,7 @@ function el(tag, attributes = {}, ...children) {
 }
 
 function pageName(page) {
-  return page.printedPageLabel ? `PDF ${page.pdfPageIndex}쪽 (인쇄 쪽 ${page.printedPageLabel})` : `PDF ${page.pdfPageIndex}쪽`;
+  return page.printedPageLabel ? `PDF ${page.pdfPageIndex}쪽 (책 ${page.printedPageLabel}쪽)` : `PDF ${page.pdfPageIndex}쪽`;
 }
 
 // The page text with every match wrapped in <mark>, built from text nodes.
@@ -62,7 +62,7 @@ export function createSourceView({ load }) {
         'aria-current': page.pdfPageIndex === selected ? 'true' : 'false' },
       el('span', { class: 'page-number', text: `${page.pdfPageIndex}쪽` }),
       el('span', { class: 'page-state', text: STATE_LABELS[page.state] }),
-      count > 0 ? el('span', { class: 'page-hits', text: `찾은 곳 ${count}` }) : null);
+      count > 0 ? el('span', { class: 'page-hits', text: `${count}곳` }) : null);
       button.addEventListener('click', () => {
         selected = page.pdfPageIndex;
         render();
@@ -76,12 +76,12 @@ export function createSourceView({ load }) {
     const page = source.pages.find(item => item.pdfPageIndex === selected);
     const parts = [el('h3', { text: pageName(page) }), el('p', { class: `page-badge state-${page.state}`, text: STATE_LABELS[page.state] })];
     if (page.state === 'draft') {
-      parts.push(el('p', { class: 'muted', text: '자동으로 뽑은 글자입니다. 표·수식·그림과 줄 순서는 원본 PDF와 대조해 주세요.' }));
+      parts.push(el('p', { class: 'muted', text: '자동으로 읽은 글자예요. 표·수식·그림과 줄 순서는 PDF와 다를 수 있어요.' }));
       parts.push(el('pre', { class: 'page-text' }, ...highlighted(page.text, query)));
     } else if (page.state === 'textless') {
-      parts.push(el('p', { text: '이 쪽에서는 글자를 뽑지 못했습니다. 스캔한 쪽이거나 빈 쪽입니다. 원본 PDF를 직접 보세요.' }));
+      parts.push(el('p', { text: '이 쪽은 글자를 못 읽었어요. 그림이나 스캔한 쪽이에요. PDF에서 직접 봐 주세요.' }));
     } else {
-      parts.push(el('p', { text: '이 쪽을 읽지 못했습니다. 원본 PDF를 직접 보세요.' }));
+      parts.push(el('p', { text: '이 쪽을 읽지 못했어요. PDF에서 직접 봐 주세요.' }));
     }
     // The general "compare with the original" note is already said above; keep page-specific ones (images, errors).
     const issues = page.issues.filter(issue => !issue.startsWith('원본 PDF와 텍스트'));
@@ -104,12 +104,12 @@ export function createSourceView({ load }) {
     }
     nodes.title.textContent = source.title;
     const readable = source.pages.filter(page => page.state === 'draft').length;
-    nodes.meta.textContent = `${source.originalName} · 뽑아 둔 쪽 ${source.pages.length}개(글자 있는 쪽 ${readable}개)`;
+    nodes.meta.textContent = `${source.originalName} · ${source.pages.length}쪽 가운데 글자 있는 쪽 ${readable}쪽`;
     if (!source.pages.some(page => page.pdfPageIndex === selected)) selected = source.pages[0].pdfPageIndex;
     const matches = query.trim() ? searchPages(source.pages, query) : [];
     nodes.searchResult.textContent = !query.trim() ? ''
-      : matches.length === 0 ? `「${query.trim()}」을(를) 찾지 못했습니다.`
-        : `「${query.trim()}」: ${matches.length}개 쪽에서 ${matches.reduce((sum, match) => sum + match.count, 0)}곳`;
+      : matches.length === 0 ? `「${query.trim()}」을(를) 찾지 못했어요.`
+        : `「${query.trim()}」: ${matches.length}쪽에서 ${matches.reduce((sum, match) => sum + match.count, 0)}곳`;
     renderList(matches);
     renderPage();
   }

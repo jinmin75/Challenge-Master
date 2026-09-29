@@ -9,6 +9,11 @@
   box-sizing: border-box;
 }
 
+/* The hidden attribute always wins over display rules (flex/grid rows used to reappear). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
 }
@@ -1318,20 +1323,14 @@ h3.sub {
 }
 
 @media (min-width: 1040px) {
-  #view-plan:not([hidden]) {
+  #view-today:not([hidden]):not(.setup-mode) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 300px;
     column-gap: 20px;
     align-items: start;
   }
 
-  #view-plan > * {
-    grid-column: 1;
-  }
-
-  #view-plan > .cal-side {
-    grid-column: 2;
-    grid-row: 1 / span 40;
+  #view-today > .cal-side {
     position: sticky;
     top: 16px;
     margin-top: 0;
@@ -1584,4 +1583,496 @@ h3.sub {
 
 .stale-evidence p {
   margin: 0 0 6px;
+}
+
+/* ---- D024: 오늘 · 문제 풀기 · 보관함 in plain words ---- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.first-run {
+  max-width: 760px;
+  display: grid;
+  gap: 14px;
+}
+
+.first-run h1 {
+  margin: 0;
+}
+
+.first-run form {
+  display: grid;
+  gap: 16px;
+}
+
+.first-run fieldset {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.first-run legend {
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+#taskRows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.task-row input,
+.task-row select {
+  margin: 0;
+}
+
+.task-minutes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.task-minutes input {
+  width: 80px;
+}
+
+@media (max-width: 640px) {
+  .task-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .task-row .task-title {
+    grid-column: 1 / -1;
+  }
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  min-height: 40px;
+  border: 1px solid #c9d0c1;
+  border-radius: 999px;
+  padding: 0 14px;
+  color: #1d2433;
+  background: #ffffff;
+  font-weight: 600;
+}
+
+.chip:hover {
+  background: #f1f6f3;
+}
+
+.chip[aria-pressed="true"] {
+  border-color: #25665a;
+  color: #ffffff;
+  background: #25665a;
+}
+
+.inline-field,
+.file-field {
+  display: grid;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.inline-form label {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.inline-form input[type="number"] {
+  width: 120px;
+}
+
+details.more > summary {
+  cursor: pointer;
+  min-height: 36px;
+  color: #3b4456;
+  font-weight: 700;
+}
+
+.today {
+  display: grid;
+  gap: 16px;
+}
+
+.notice {
+  margin: 0;
+  border: 1px solid #e3c98f;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #5c3b00;
+  background: #fdf3de;
+}
+
+.now-card {
+  display: grid;
+  gap: 12px;
+  background: #e8f2ee;
+  border-color: #b9d8cc;
+}
+
+.now-card .eyebrow {
+  margin: 0;
+}
+
+.now-card h1 {
+  margin: 0;
+  font-size: clamp(1.4rem, 2.4vw, 2rem);
+  line-height: 1.3;
+  word-break: keep-all;
+}
+
+.now-card .actions button {
+  min-height: 46px;
+}
+
+.today-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-pick {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  border: 1px solid #dde2d5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #1d2433;
+  background: #ffffff;
+  font-weight: 600;
+  text-align: left;
+  word-break: keep-all;
+}
+
+.task-pick:hover {
+  background: #f4f7f1;
+}
+
+.task-pick[aria-pressed="true"] {
+  border-color: #25665a;
+  box-shadow: inset 4px 0 0 #25665a;
+}
+
+.task-meta {
+  color: #566072;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px dashed #a8792b;
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #5c3b00;
+  background: #fdebc8;
+}
+
+.week-list {
+  margin: 6px 0;
+  padding-left: 20px;
+  color: #3b4456;
+}
+
+/* 문제 풀기 */
+.solve-work {
+  display: grid;
+  gap: 14px;
+  max-width: 980px;
+}
+
+.solve-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.solve-head h2 {
+  margin: 0;
+  word-break: keep-all;
+}
+
+.solve-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.field-title {
+  font-weight: 700;
+}
+
+.compare {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compare-mine,
+.compare-book {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.tag {
+  justify-self: start;
+  border-radius: 6px;
+  padding: 1px 8px;
+  color: #3b4456;
+  background: #e9ebee;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.page-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.page-tabs button {
+  min-height: 34px;
+  border: 1px solid #c9d0c1;
+  padding: 0 10px;
+  color: #1d2433;
+  background: #ffffff;
+}
+
+.page-tabs button[aria-selected="true"] {
+  border-color: #25665a;
+  color: #ffffff;
+  background: #25665a;
+}
+
+.other-pages summary,
+.solve-more > summary {
+  cursor: pointer;
+  min-height: 36px;
+  color: #3b4456;
+  font-weight: 700;
+}
+
+.page-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.solve-more {
+  border-top: 1px solid #ecefe5;
+  padding-top: 10px;
+}
+
+.memo-box,
+.ai-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.memo-box h3,
+.ai-box h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.memo-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #ecefe5;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.memo p {
+  flex: 1;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: keep-all;
+}
+
+.memo.candidate {
+  display: grid;
+  border-color: #d7c79a;
+  background: #fffbef;
+}
+
+.check {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+}
+
+.solve-foot {
+  margin: 0;
+}
+
+.saved-card h2 {
+  margin: 0;
+}
+
+.solved-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.solved-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #dde2d5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #1d2433;
+  background: #ffffff;
+  text-align: left;
+}
+
+.solved-item:hover {
+  background: #f4f7f1;
+}
+
+.solved-title {
+  font-weight: 700;
+  word-break: keep-all;
+}
+
+.solved-meta {
+  color: #566072;
+  font-size: 0.88rem;
+}
+
+/* 보관함 */
+.keep {
+  display: grid;
+  gap: 16px;
+}
+
+.keep-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.keep-head h2 {
+  margin: 0;
+}
+
+.keep-section {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #ecefe5;
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.keep-section h3 {
+  margin: 0;
+}
+
+/* 달력 창: the three answers first */
+.answers {
+  display: grid;
+  gap: 8px;
+}
+
+.answers .answer {
+  min-height: 46px;
+  border: 1px solid #25665a;
+  color: #25665a;
+  background: #ffffff;
+  text-align: left;
+}
+
+.answers .answer:hover {
+  background: #eef5f2;
+}
+
+.answer-detail {
+  border-left: 3px solid #25665a;
+  padding-left: 10px;
+}
+
+.ask-line {
+  margin: 0;
+  font-weight: 700;
+}
+
+#addTaskRow {
+  justify-self: start;
+}
+
+/* 내 교재: the file and page count are already said above the search. */
+#view-source #sourceMeta {
+  display: none;
 }

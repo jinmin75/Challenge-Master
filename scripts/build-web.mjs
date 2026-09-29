@@ -10,7 +10,7 @@ const version = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')).
 const pdfjs = join(project, 'node_modules', 'pdfjs-dist');
 const pdfjsVersion = JSON.parse(readFileSync(join(pdfjs, 'package.json'), 'utf8')).version;
 
-const pageFiles = ['app.js', 'calendar.js', 'local-api.js', 'notes-view.js', 'source-view.js', 'study-view.js', 'styles.css', 'wiki-export-view.js'];
+const pageFiles = ['app.js', 'calendar.js', 'local-api.js', 'notes-view.js', 'solve-view.js', 'source-view.js', 'styles.css', 'wiki-export-view.js'];
 // Rule modules the page imports; each must run without Node APIs.
 const sharedModules = ['ai-bridge.mjs', 'app-core.mjs', 'calendar.mjs', 'events.mjs', 'ingest.mjs', 'pdf-core.mjs', 'pdf-read.mjs',
   'replan.mjs', 'scheduler.mjs', 'study-core.mjs', 'weekly.mjs', 'wiki-export.mjs', 'zip-core.mjs'];

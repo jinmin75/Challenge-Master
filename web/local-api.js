@@ -6,7 +6,7 @@ import { calendarFor, eventBuilder, isPdfBytes, localDate, parseSetupFields, pla
   statusFor, studentError, studentPdfError, textlessPages, writePaths, writeResponse } from './src/app-core.mjs';
 import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
-import { approveSummary, candidateLog, completeBlocker, decideLog, lockSession, MAX_LOGS, MAX_SESSIONS, noteItems, retakeSession, reviewCycle,
+import { addEvidence, approveSummary, candidateLog, completeBlocker, decideLog, lockSession, suggestEvidence, MAX_LOGS, MAX_SESSIONS, noteItems, retakeSession, reviewCycle,
   reviewDateBlocker, reviewTasks, saveLog, saveSession, sourcePages } from './src/study-core.mjs';
 import { buildWikiExport, checkWikiExport } from './src/wiki-export.mjs';
 import { activeConsent, buildRequest, MAX_AI_REVIEWS, newAiReview, newConsent, parseCandidates,
@@ -22,8 +22,8 @@ const channel = 'BroadcastChannel' in globalThis ? new BroadcastChannel('challen
 
 // English store messages that can reach students outside the calendar (the local app shows them as they are).
 const extraMessages = [
-  ['Confirmed progress exceeds plan allocation', '오늘 배정된 분보다 많이 기록할 수 없습니다.'],
-  ['Confirmed progress exceeds the remaining task estimate', '그 과업의 남은 분량보다 많이 기록할 수 없습니다.'],
+  ['Confirmed progress exceeds plan allocation', '오늘 할 시간보다 많이 적을 수 없어요.'],
+  ['Confirmed progress exceeds the remaining task estimate', '그 공부에 남은 시간보다 많이 적을 수 없어요.'],
 ];
 
 function toStudentError(error) {
@@ -44,7 +44,7 @@ function openDb() {
 }
 
 function storageError(cause) {
-  return new Error('이 브라우저에 기록을 저장할 수 없습니다. 시크릿(개인정보 보호) 창이라면 일반 창에서 열어 주세요.', { cause });
+  return new Error('이 브라우저에는 기록을 저장할 수 없어요. 시크릿 창이라면 일반 창에서 열어 주세요.', { cause });
 }
 
 // Reads `keys`, then runs work(values, put) inside the same transaction. work must stay synchronous:
@@ -92,7 +92,7 @@ let demoInput;
 async function runtimeFor(setup, state, study) {
   let runtime;
   if (setup) {
-    runtime = { input: planInputFromSetup(setup), source: `local_setup:${setup.source.originalName}`, setup, storage: 'browser' };
+    runtime = { input: planInputFromSetup(setup), source: `local_setup:${setup.source?.originalName ?? "no-textbook"}`, setup, storage: 'browser' };
   } else {
     demoInput ??= await (await fetch(new URL('./fixtures/synthetic-plan.json', import.meta.url))).json();
     runtime = { input: structuredClone(demoInput), source: 'synthetic_demo', setup: null, storage: 'browser' };
@@ -122,7 +122,7 @@ export async function request(path, body) {
     const setupId = saved.setup?.id ?? null;
     const state = await transact(['setup', 'events'], 'readwrite', (values, put) => {
       if ((values.setup?.id ?? null) !== setupId) {
-        throw new Error('다른 창에서 자료를 바꿨습니다. 이 창을 새로고침해 주세요.');
+        throw new Error('다른 창에서 기록을 바꿨어요. 이 창을 새로고침해 주세요.');
       }
       const before = replay(values.events);
       const after = applyEvent(before, build(structuredClone(before)));
@@ -163,39 +163,57 @@ async function requestPersistence() {
 
 // Registration: read the PDF in the page, keep the extracted text, and start an empty record.
 // A previous setup and its records move to `archives` in this browser, like the local app's archive files.
-export async function setup(form) {
+function chosenFile(form) {
   const file = form.get('pdf');
-  if (!file || typeof file === 'string' || !file.name || file.size === 0) throw new Error('PDF 파일을 선택해 주세요.');
+  return file && typeof file !== 'string' && file.name && file.size > 0 ? file : null;
+}
+
+// Reads a textbook PDF in the page: the stored source description and the draft of its pages.
+// selectedPages null means the first 30 pages (or the whole PDF when it is shorter).
+async function readSource(file, title, selectedPages) {
   const originalName = safeOriginalName(file.name);
-  if (file.size > MAX_PDF_BYTES) throw new Error('PDF 파일이 너무 큽니다.');
+  if (file.size > MAX_PDF_BYTES) throw new Error('PDF 파일이 너무 커요(50MB까지).');
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!originalName.toLowerCase().endsWith('.pdf') || !isPdfBytes(bytes)) throw new Error('PDF 파일만 등록할 수 있습니다.');
-  const { title, dailyMinutes, weeklyMinutes, tasks, selectedPages } =
-    parseSetupFields(name => String(form.get(name) ?? '').trim());
+  if (!originalName.toLowerCase().endsWith('.pdf') || !isPdfBytes(bytes)) throw new Error('PDF 파일만 넣을 수 있어요.');
   const sourceId = `local-pdf-${crypto.randomUUID()}`;
   let extraction;
+  let pages;
   try {
     const sourceHash = hex(await crypto.subtle.digest('SHA-256', bytes));
-    const extracted = await extractPages(bytes, selectedPages);
-    extraction = manifestFromExtraction({ sourceId, sourceHash, title, edition: originalName, selectedPages, extracted });
+    const extracted = await extractPages(bytes, selectedPages ?? { first: 30 });
+    pages = selectedPages ?? extracted.pages.map(page => page.pdfPageIndex);
+    extraction = manifestFromExtraction({ sourceId, sourceHash, title, edition: originalName, selectedPages: pages, extracted });
   } catch (error) {
     throw new Error(studentPdfError(error.message), { cause: error });
   }
-  const record = {
-    schemaVersion: 1,
-    id: `setup-${crypto.randomUUID()}`,
-    title,
-    dailyMinutes,
-    weeklyMinutes,
-    tasks,
+  return {
     source: {
       originalName,
       sizeBytes: file.size,
       uploadedAt: new Date().toISOString(),
-      selectedPages,
+      selectedPages: pages,
       extractionStatus: extraction.summary.failedPages.length > 0 ? 'failed' : 'needs_review',
-      extraction: { summary: extraction.summary, textlessPages: textlessPages(extraction, selectedPages) },
+      extraction: { summary: extraction.summary, textlessPages: textlessPages(extraction, pages) },
     },
+    draft: { sourceId, manifest: extraction.manifest, draftMarkdown: extraction.draftMarkdown },
+  };
+}
+
+// First setup (or a new plan): what to study and how long a day; the textbook PDF is optional (D024).
+export async function setup(form) {
+  const { title, dailyMinutes, weeklyMinutes, tasks, selectedPages } =
+    parseSetupFields(name => String(form.get(name) ?? '').trim());
+  const file = chosenFile(form);
+  const read = file ? await readSource(file, title, selectedPages) : null;
+  const record = {
+    schemaVersion: 1,
+    id: `setup-${crypto.randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    title,
+    dailyMinutes,
+    weeklyMinutes,
+    tasks,
+    source: read?.source ?? null,
   };
   await transact(['setup', 'events', 'archives'], 'readwrite', (values, put) => {
     if (values.setup || (values.events?.length ?? 0) > 0) {
@@ -206,7 +224,24 @@ export async function setup(form) {
     }
     put('setup', record);
     put('events', []);
-    put('draft', { sourceId, manifest: extraction.manifest, draftMarkdown: extraction.draftMarkdown });
+    put('draft', read?.draft ?? undefined);
+  });
+  await requestPersistence();
+  notify();
+  return request('/api/status');
+}
+
+// A textbook PDF added (or replaced) later: the plan and its records stay as they are.
+export async function attachSource(form) {
+  const file = chosenFile(form);
+  if (!file) throw new Error('PDF 파일을 골라 주세요.');
+  const current = await transact(['setup'], 'readonly', values => values.setup ?? null);
+  if (!current) throw new Error('먼저 무엇을 공부할지 정해 주세요.');
+  const read = await readSource(file, current.title, null);
+  await transact(['setup'], 'readwrite', (values, put) => {
+    if (!values.setup) throw new Error('먼저 무엇을 공부할지 정해 주세요.');
+    put('setup', { ...values.setup, source: read.source });
+    put('draft', read.draft);
   });
   await requestPersistence();
   notify();
@@ -298,7 +333,7 @@ async function changeSessions(keys, change) {
 
 function findSession(sessions, id) {
   const index = sessions.findIndex(item => item.id === id);
-  if (index < 0) throw new Error('학습 기록을 찾을 수 없습니다. 다른 창에서 지웠을 수 있습니다. 새로고침해 주세요.');
+  if (index < 0) throw new Error('그 문제를 찾을 수 없어요. 다른 창에서 지웠을 수 있어요. 새로고침해 주세요.');
   return index;
 }
 
@@ -316,11 +351,39 @@ export async function saveStudySession(input) {
       const blocker = reviewDateBlocker(sessions[index], replay(values.events), localDate());
       if (blocker) throw new Error(blocker);
     }
-    if (index < 0 && sessions.length >= MAX_SESSIONS) throw new Error(`학습 기록은 ${MAX_SESSIONS}개까지 저장합니다.`);
+    if (index < 0 && sessions.length >= MAX_SESSIONS) throw new Error(`문제는 ${MAX_SESSIONS}개까지 저장할 수 있어요.`);
     const saved = saveSession(index >= 0 ? sessions[index] : null, input, { id: crypto.randomUUID(), now });
     if (index >= 0) sessions[index] = saved;
     else sessions.push(saved);
     return { sessions, value: saved };
+  });
+}
+
+// 「교재랑 맞춰 보기」 (D024): one step saves the problem and the learner's answer, picks the textbook pages whose words
+// match the question, and freezes the answer — the pages' text is copied in the same transaction.
+export async function startCompare(input) {
+  const now = new Date().toISOString();
+  return changeSessions(['setup', 'draft'], (sessions, values) => {
+    const source = sourcePages(values);
+    const index = input.id ? findSession(sessions, input.id) : -1;
+    if (index >= 0 && sessions[index].locked) return { sessions, value: sessions[index] };
+    if (index < 0 && sessions.length >= MAX_SESSIONS) throw new Error(`문제는 ${MAX_SESSIONS}개까지 저장할 수 있어요.`);
+    const saved = saveSession(index >= 0 ? sessions[index] : null, { ...input, evidence: suggestEvidence(input.question, source) },
+      { id: crypto.randomUUID(), now });
+    const locked = lockSession(saved, source, { now });
+    if (index >= 0) sessions[index] = locked;
+    else sessions.push(locked);
+    return { sessions, value: locked };
+  });
+}
+
+// 「다른 쪽도 보기」: another textbook page joins a problem being compared.
+export async function addStudyEvidence(id, pdfPageIndex) {
+  const now = new Date().toISOString();
+  return changeSessions(['setup', 'draft'], (sessions, values) => {
+    const index = findSession(sessions, id);
+    sessions[index] = addEvidence(sessions[index], sourcePages(values), pdfPageIndex, { now });
+    return { sessions, value: sessions[index] };
   });
 }
 
@@ -337,7 +400,7 @@ export async function lockStudySession(id) {
 export async function retakeStudySession(id) {
   const now = new Date().toISOString();
   return changeSessions([], sessions => {
-    if (sessions.length >= MAX_SESSIONS) throw new Error(`학습 기록은 ${MAX_SESSIONS}개까지 저장합니다.`);
+    if (sessions.length >= MAX_SESSIONS) throw new Error(`문제는 ${MAX_SESSIONS}개까지 저장할 수 있어요.`);
     const retake = retakeSession(sessions[findSession(sessions, id)], { id: crypto.randomUUID(), now });
     sessions.push(retake);
     return { sessions, value: retake };
@@ -365,7 +428,7 @@ export async function reviewInfo(id) {
 export async function completeReview(id) {
   const values = await transact(['study', 'events'], 'readonly', saved => saved);
   const session = sessionsOf(values).find(item => item.id === id);
-  if (!session) throw new Error('학습 기록을 찾을 수 없습니다. 새로고침해 주세요.');
+  if (!session) throw new Error('그 문제를 찾을 수 없어요. 새로고침해 주세요.');
   const state = replay(values.events);
   const cycle = reviewCycle(session, state, localDate());
   const blocker = completeBlocker(cycle);
@@ -412,9 +475,9 @@ export async function saveStudyLog(input) {
   const now = new Date().toISOString();
   return changeSessions([], (sessions, _values, logs) => {
     const index = input.id ? logs.findIndex(log => log.id === input.id) : -1;
-    if (input.id && index < 0) throw new Error('학습로그를 찾을 수 없습니다. 새로고침해 주세요.');
+    if (input.id && index < 0) throw new Error('그 메모를 찾을 수 없어요. 새로고침해 주세요.');
     const session = sessions[findSession(sessions, index >= 0 ? logs[index].sessionId : input.sessionId)];
-    if (index < 0 && logs.length >= MAX_LOGS) throw new Error(`학습로그는 ${MAX_LOGS}개까지 저장합니다.`);
+    if (index < 0 && logs.length >= MAX_LOGS) throw new Error(`메모는 ${MAX_LOGS}개까지 저장할 수 있어요.`);
     const saved = saveLog(index >= 0 ? logs[index] : null, input, { id: crypto.randomUUID(), now, session });
     if (index >= 0) logs[index] = saved;
     else logs.push(saved);
@@ -425,7 +488,7 @@ export async function saveStudyLog(input) {
 export async function deleteStudyLog(id) {
   return changeSessions([], (sessions, _values, logs) => {
     const index = logs.findIndex(log => log.id === id);
-    if (index < 0) throw new Error('학습로그를 찾을 수 없습니다. 새로고침해 주세요.');
+    if (index < 0) throw new Error('그 메모를 찾을 수 없어요. 새로고침해 주세요.');
     logs.splice(index, 1);
     return { sessions, logs, value: null };
   });
@@ -459,7 +522,7 @@ export async function aiConsents() {
 export async function aiRequest(sessionId, { provider, purpose }) {
   const values = await transact(['study'], 'readonly', saved => saved);
   const session = sessionsOf(values).find(item => item.id === sessionId);
-  if (!session) throw new Error('학습 기록을 찾을 수 없습니다. 새로고침해 주세요.');
+  if (!session) throw new Error('그 문제를 찾을 수 없어요. 새로고침해 주세요.');
   const sourceIds = evidenceSources(session);
   const consent = activeConsent(consentsOf(values), { provider, sourceIds, purpose });
   if (!consent) {
@@ -494,12 +557,12 @@ export async function saveAiReview(sessionId, { provider, purpose, response }) {
     const index = findSession(sessions, sessionId);
     const session = sessions[index];
     const consent = activeConsent(consentsOf(values), { provider, sourceIds: evidenceSources(session), purpose });
-    if (!consent) throw new Error('이 서비스와 목적에 대한 동의가 없습니다. 먼저 동의해 주세요.');
-    if ((session.aiReviews ?? []).length >= MAX_AI_REVIEWS) throw new Error(`AI 검토는 기록마다 ${MAX_AI_REVIEWS}개까지 저장합니다.`);
+    if (!consent) throw new Error('이 AI에 붙여 넣어도 된다는 허락이 아직 없어요. 먼저 허락해 주세요.');
+    if ((session.aiReviews ?? []).length >= MAX_AI_REVIEWS) throw new Error(`AI 답은 문제마다 ${MAX_AI_REVIEWS}개까지 저장할 수 있어요.`);
     const review = newAiReview({ id: crypto.randomUUID(), session, provider, purpose,
       includedSource: consent.sourceRights === 'confirmed', consentId: consent.consentId, response, now });
     const candidates = purpose === 'review' ? parseCandidates(review.response) : [];
-    if (logs.length + candidates.length > MAX_LOGS) throw new Error(`학습로그는 ${MAX_LOGS}개까지 저장합니다.`);
+    if (logs.length + candidates.length > MAX_LOGS) throw new Error(`메모는 ${MAX_LOGS}개까지 저장할 수 있어요.`);
     const added = candidates.map(candidate => candidateLog(candidate, { id: crypto.randomUUID(), now, session, reviewId: review.id }));
     sessions[index] = { ...session, aiReviews: [...(session.aiReviews ?? []), review], updatedAt: now };
     return { sessions, logs: [...logs, ...added],
@@ -511,7 +574,7 @@ export async function decideStudyLog(id, action) {
   const now = new Date().toISOString();
   return changeSessions([], (sessions, _values, logs) => {
     const index = logs.findIndex(log => log.id === id);
-    if (index < 0) throw new Error('학습로그를 찾을 수 없습니다. 새로고침해 주세요.');
+    if (index < 0) throw new Error('그 메모를 찾을 수 없어요. 새로고침해 주세요.');
     logs[index] = decideLog(logs[index], action, { now });
     return { sessions, logs, value: logs[index] };
   });

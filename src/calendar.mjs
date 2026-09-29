@@ -113,8 +113,8 @@ function signalsFor(days, context) {
     signals.push({
       kind: 'gap_run',
       dates: longest,
-      message: `기록이 없거나 누락한 날이 ${longest.length}일 이어졌습니다. 기록이 없는 날을 공부하지 않은 날로 보지는 않습니다. `
-        + `다시 시작하기 어렵다면 오늘은 ${SHORT_START_MINUTES}분 이하의 짧은 과업 하나부터 권합니다. 하루 분량은 늘리지 않습니다.`,
+      message: `기록이 없거나 못 한 날이 ${longest.length}일 이어졌어요. 기록이 없는 날을 안 한 날로 치지는 않아요. `
+        + `다시 시작하기 어렵다면 오늘은 ${SHORT_START_MINUTES}분 이하의 짧은 공부 하나부터 해 보세요. 하루 분량은 늘리지 않아요.`,
     });
   }
   const overdue = context.overdueReviews;
@@ -122,13 +122,13 @@ function signalsFor(days, context) {
     signals.push({
       kind: 'overdue_review',
       tasks: overdue,
-      message: `복습 과업 ${overdue.length}개가 처음 배정된 날로부터 ${OVERDUE_REVIEW_DAYS}일 넘게 남아 있습니다.`,
+      message: `복습 ${overdue.length}개가 처음 들어간 날로부터 ${OVERDUE_REVIEW_DAYS}일 넘게 남아 있어요.`,
     });
   }
   if (context.deferredScope > 0) {
     signals.push({
       kind: 'deferred_scope',
-      message: '앞으로 7일 계획 뒤에도 배정되지 못한 범위가 남아 있습니다. 공부 시간이나 범위를 조정할지 검토해 주세요.',
+      message: '앞으로 7일 뒤에도 못 들어간 공부가 남아 있어요. 하루 시간이나 공부할 것을 바꿀지 생각해 보세요.',
     });
   }
   return signals;

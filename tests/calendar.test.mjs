@@ -71,7 +71,7 @@ test('the month calendar gives each day one state and sums the month from the re
   assert.deepEqual(calendar.needsReview, ['2026-09-25', '2026-09-23']);
   const gap = calendar.signals.find(signal => signal.kind === 'gap_run');
   assert.deepEqual(gap.dates, ['2026-09-25', '2026-09-26']);
-  assert.match(gap.message, /공부하지 않은 날로 보지는 않습니다/);
+  assert.match(gap.message, /안 한 날로 치지는 않아요/);
   assert.ok(calendar.backfillableTasks.some(task => task.taskId === 'unit1' && task.remainingMinutes === 25));
 });
 
@@ -161,17 +161,17 @@ test('calendar API records reviews, late progress and capped make-up time, with 
     assert.match(conflict.data.error, /requestId가 다른 기록/);
 
     const today = await call('/api/day-review', { date: offset(0), status: 'missed' });
-    assert.match(today.data.error, /어제까지의 날짜만/);
+    assert.match(today.data.error, /어제까지의 날만/);
     const beforeStart = await call('/api/day-review', { date: offset(-5), status: 'missed' });
-    assert.match(beforeStart.data.error, /등록하기 전 날짜/);
+    assert.match(beforeStart.data.error, /계획을 만들기 전의 날/);
     const lateBeforeStart = await call('/api/late-progress', { date: offset(-5), taskId: 'unit1', minutes: 5 });
-    assert.match(lateBeforeStart.data.error, /등록하기 전 날짜/);
+    assert.match(lateBeforeStart.data.error, /계획을 만들기 전의 날/);
 
     const late = await call('/api/late-progress', { date: offset(-3), taskId: 'unit1', minutes: 15 });
     assert.equal(late.status, 200, late.data.error);
     assert.equal(late.data.lateProgressMinutes, 15);
     const tooMuch = await call('/api/late-progress', { date: offset(-3), taskId: 'unit1', minutes: 60 });
-    assert.match(tooMuch.data.error, /남은 분량보다 많이/);
+    assert.match(tooMuch.data.error, /남은 시간보다 많이/);
 
     const makeup = await call('/api/makeup', { forDate: offset(-2), date: offset(2), minutes: 40 });
     assert.equal(makeup.status, 200, makeup.data.error);

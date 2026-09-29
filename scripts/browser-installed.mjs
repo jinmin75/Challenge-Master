@@ -40,24 +40,27 @@ export async function browserCheckInstalled({ command, args, cwd, env }) {
     });
     await page.goto(url, { waitUntil: 'networkidle' });
 
+    // D024 first run: what to study in rows, the PDF, and (for the installer app) the pages to read.
+    await page.locator('#firstRun:not([hidden])').waitFor();
+    await page.locator('.task-title').first().fill('합성 1쪽 읽기');
+    await page.locator('.task-minutes input').first().fill('30');
     await page.locator('#pdfInput').setInputFiles({ name: 'installed-browser.pdf', mimeType: 'application/pdf',
       buffer: syntheticPdf() });
-    await page.fill('#titleInput', '설치본 브라우저 시험');
-    await page.fill('#tasksInput', '합성 1쪽 읽기 | 30 | 새 내용');
+    await page.locator('#firstRun details.more summary').click();
     await page.fill('#pageStartInput', '1');
     await page.fill('#pageEndInput', '1');
-    await page.getByRole('button', { name: '이 설정으로 시작' }).click();
-    await page.locator('#extractionPages li', { hasText: '추출 초안' }).waitFor();
+    await page.click('#setupSubmit');
+    // Opening today's screen makes today's plan by itself (no 「오늘 시작」).
+    await page.locator('#todayMain:not([hidden]) #allocations .task-pick').first().waitFor();
 
-    await page.locator('#startButton').click();
-    await page.locator('#allocations li').first().waitFor();
+    await page.click('#partButton');
     await page.fill('#minutesInput', '5');
-    await page.locator('#progressForm button[type=submit]').click();
-    await page.waitForFunction(() => document.querySelector('#confirmedMinutes')?.textContent === '5분');
+    await page.locator('#partForm button[type=submit]').click();
+    await page.waitForFunction(() => document.querySelector('#todayMessage')?.textContent.startsWith('5분 적었어요'));
     const today = localDate();
     await page.waitForFunction(day => document.querySelector(`#calendarGrid .day[data-date="${day}"]`)
-      ?.textContent.includes('확인 5'), today);
-    assert.match(await page.locator('#monthTitle').textContent(), /월 점검 \(한 달\)/);
+      ?.textContent.includes('오늘5 / '), today);
+    assert.match(await page.locator('#monthTitle').textContent(), /^\d+월$/);
 
     await page.locator('#quitButton').click();
     await page.waitForFunction(() => document.body.textContent.includes('창을 닫아 주세요'));

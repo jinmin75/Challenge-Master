@@ -1,14 +1,14 @@
 // Learning calendar and monthly check (PRD 6.1). Uses the page's api()/run() so busy state and errors stay shared.
 // C: a colour summary beside the plan; the full calendar, day choices and monthly check open in a dialog.
 const STATE_LABELS = {
-  before_start: '등록 전',
-  recorded: '기록 있음',
-  rest: '휴식',
-  needs_review: '확인 필요',
-  missed: '누락 확인',
-  late: '사후 기록',
+  before_start: '시작 전',
+  recorded: '공부함',
+  rest: '쉰 날',
+  needs_review: '기록 없음',
+  missed: '못 한 날',
+  late: '나중에 적음',
   today: '오늘',
-  future: '예정',
+  future: '앞으로',
 };
 
 // The summary's second signal besides colour (a shape per state), matching the legend in index.html.
@@ -55,16 +55,16 @@ function addDays(date, days) {
 function cellLines(day) {
   const lines = [];
   if (['recorded', 'today'].includes(day.state) || (day.state === 'rest' && day.confirmedMinutes > 0)) {
-    lines.push(day.assignedMinutes === null ? `확인 ${day.confirmedMinutes}분` : `확인 ${day.confirmedMinutes} / ${day.assignedMinutes}분`);
+    lines.push(day.assignedMinutes === null ? `${day.confirmedMinutes}분 함` : `${day.confirmedMinutes} / ${day.assignedMinutes}분 함`);
   }
-  if (day.state === 'rest') lines.push(day.review ? '휴식(확인)' : '휴식');
-  if (day.state === 'needs_review') lines.push('확인 필요');
-  if (day.state === 'missed') lines.push(day.makeupScheduledFor > 0 ? `누락 · 보완 ${day.makeupScheduledFor}분` : '누락 확인');
-  if (day.lateMinutes > 0) lines.push(`사후 기록 ${day.lateMinutes}분`);
+  if (day.state === 'rest') lines.push('쉰 날');
+  if (day.state === 'needs_review') lines.push('기록 없음');
+  if (day.state === 'missed') lines.push(day.makeupScheduledFor > 0 ? `못 함 · ${day.makeupScheduledFor}분 채움` : '못 한 날');
+  if (day.lateMinutes > 0) lines.push(`나중에 ${day.lateMinutes}분`);
   if (day.shortened) lines.push('줄임');
   if (day.skippedTasks > 0) lines.push(`건너뜀 ${day.skippedTasks}`);
-  if (day.state === 'future' && day.plannedMinutes !== null) lines.push(`예정 ${day.plannedMinutes}분`);
-  if (day.state === 'before_start') lines.push('등록 전');
+  if (day.state === 'future' && day.plannedMinutes !== null) lines.push(`할 것 ${day.plannedMinutes}분`);
+  if (day.state === 'before_start') lines.push('시작 전');
   return lines;
 }
 
@@ -116,7 +116,7 @@ export function createCalendar({ api, run, today }) {
       const classes = ['mini-day', `state-${day.state}`];
       if (day.makeupMinutes > 0) classes.push('has-makeup');
       const button = el('button', { type: 'button', class: classes.join(' '), 'data-date': day.date,
-        'aria-label': `${koreanDate(day.date)} ${STATE_LABELS[day.state]}${day.makeupMinutes > 0 ? `, 보완 +${day.makeupMinutes}분` : ''}. 자세히 보기` },
+        'aria-label': `${koreanDate(day.date)} ${STATE_LABELS[day.state]}${day.makeupMinutes > 0 ? `, 채울 시간 +${day.makeupMinutes}분` : ''}. 크게 보기` },
       el('span', { class: 'n', text: String(dayNumber(day.date)) }),
       STATE_MARKS[day.state] ? el('span', { class: 'mark', 'aria-hidden': 'true', text: STATE_MARKS[day.state] }) : null,
       day.makeupMinutes > 0 ? el('span', { class: 'plus', 'aria-hidden': 'true', text: '+' }) : null);
@@ -130,11 +130,11 @@ export function createCalendar({ api, run, today }) {
     }
     nodes.mini.replaceChildren(...cells);
     const summary = data.summary;
-    const parts = [`기록 ${summary.recordedDays}일`, `휴식 ${summary.restDays}일`];
-    if (summary.missedDays > 0) parts.push(`누락 확인 ${summary.missedDays}일`);
+    const parts = [`공부한 날 ${summary.recordedDays}일`, `쉰 날 ${summary.restDays}일`];
+    if (summary.missedDays > 0) parts.push(`못 한 날 ${summary.missedDays}일`);
     nodes.sideSummary.replaceChildren(...[
       summary.needsReviewDays > 0
-        ? el('strong', { class: 'mini-attention', text: `확인할 날 ${summary.needsReviewDays}일` }) : null,
+        ? el('strong', { class: 'mini-attention', text: `기록 없는 날 ${summary.needsReviewDays}일` }) : null,
       el('span', { text: parts.join(' · ') })].filter(Boolean));
   }
 
@@ -184,7 +184,7 @@ export function createCalendar({ api, run, today }) {
   }
 
   function renderGrid() {
-    nodes.title.textContent = `학습 캘린더 · ${Number(month.slice(0, 4))}년 ${Number(month.slice(5))}월`;
+    nodes.title.textContent = `달력 · ${Number(month.slice(0, 4))}년 ${Number(month.slice(5))}월`;
     const cells = ['일', '월', '화', '수', '목', '금', '토'].map(name => el('div', { class: 'dow', text: name }));
     const firstWeekday = new Date(`${month}-01T00:00:00`).getDay();
     for (let index = 0; index < firstWeekday; index += 1) cells.push(el('div', { class: 'day blank', 'aria-hidden': 'true' }));
@@ -196,7 +196,7 @@ export function createCalendar({ api, run, today }) {
         'aria-label': `${koreanDate(day.date)} ${STATE_LABELS[day.state]} ${cellLines(day).join(', ')}` },
       el('span', { class: 'n', text: day.state === 'today' ? `${dayNumber(day.date)} · 오늘` : String(dayNumber(day.date)) }),
       ...cellLines(day).map(line => el('span', { class: 'm', text: line })),
-      day.makeupMinutes > 0 ? el('span', { class: 'tag', text: `보완 +${day.makeupMinutes}분` }) : null);
+      day.makeupMinutes > 0 ? el('span', { class: 'tag', text: `채울 +${day.makeupMinutes}분` }) : null);
       if (['recorded', 'today'].includes(day.state) && day.assignedMinutes) {
         const width = Math.min(100, Math.round((day.confirmedMinutes / day.assignedMinutes) * 100));
         button.append(el('span', { class: 'bar' }, el('i', { style: `width:${width}%` })));
@@ -207,101 +207,114 @@ export function createCalendar({ api, run, today }) {
     nodes.grid.replaceChildren(...cells);
   }
 
+  // 「공부했는데 적는 걸 깜빡했어요」: what was studied and for how long (late progress, D020).
   function taskForm(day) {
     const tasks = data.backfillableTasks;
-    if (tasks.length === 0) return el('p', { class: 'muted', text: '사후 기록할 수 있는 남은 과업이 없습니다.' });
-    const select = el('select', { 'aria-label': '과업' }, ...tasks.map(task =>
+    if (tasks.length === 0) return el('p', { class: 'muted', text: '나중에 적을 수 있는 남은 공부가 없어요.' });
+    const select = el('select', { 'aria-label': '무엇을 했어요' }, ...tasks.map(task =>
       el('option', { value: task.taskId, text: `${task.title} (남은 ${task.remainingMinutes}분)` })));
-    const minutes = el('input', { type: 'number', min: '1', step: '1', value: '30', 'aria-label': '공부한 분' });
-    const submit = el('button', { type: 'button', text: '사후 기록' });
+    const minutes = el('input', { type: 'number', min: '1', step: '1', value: '30', 'aria-label': '몇 분' });
+    const submit = el('button', { type: 'button', text: '적기' });
     submit.addEventListener('click', () => run(() => post('/api/late-progress', {
       date: day.date, taskId: select.value, minutes: Number(minutes.value) })));
-    return el('div', { class: 'row' }, el('label', { text: '과업' }, select), el('label', { text: '공부한 분' }, minutes), submit);
+    return el('div', { class: 'row' }, el('label', { text: '무엇을 했어요' }, select), el('label', { text: '몇 분' }, minutes), submit);
   }
 
-  function makeupForm(day, { reviewFirst }) {
+  // 「채울 날 정하기」: a later day gets extra time for what was missed (never more than one day's time).
+  function makeupForm(day) {
     const from = today();
     const dates = Array.from({ length: 14 }, (_, index) => addDays(from, index + 1));
-    const date = el('select', { 'aria-label': '보완할 날' }, ...dates.map(value => el('option', { value, text: koreanDate(value) })));
+    const date = el('select', { 'aria-label': '채울 날' }, ...dates.map(value => el('option', { value, text: koreanDate(value) })));
     const minutes = el('input', { type: 'number', min: '1', max: String(data.dailyMinutes), step: '1',
       value: String(Math.min(30, data.dailyMinutes)), 'aria-label': '더할 시간(분)' });
-    const submit = el('button', { type: 'button', text: reviewFirst ? '누락 확인 + 보완 계획' : '보완 계획 추가' });
-    submit.addEventListener('click', () => run(async () => {
-      if (reviewFirst) await post('/api/day-review', { date: day.date, status: 'missed' });
-      try {
-        return await post('/api/makeup', { forDate: day.date, date: date.value, minutes: Number(minutes.value) });
-      } catch (error) {
-        // The missed review is already saved; show it so the learner can retry only the make-up part.
-        if (reviewFirst) await load().catch(() => {});
-        throw error;
-      }
-    }));
+    const submit = el('button', { type: 'button', text: '채울 날 정하기' });
+    submit.addEventListener('click', () => run(() => post('/api/makeup', { forDate: day.date, date: date.value, minutes: Number(minutes.value) })));
     return el('div', {},
-      el('div', { class: 'row' }, el('label', { text: '보완할 날' }, date), el('label', { text: '더할 시간(분)' }, minutes), submit),
-      el('p', { class: 'muted', text: `한 날짜에 더할 수 있는 보완 시간은 하루 공부 시간(${data.dailyMinutes}분)까지입니다.` }));
+      el('div', { class: 'row' }, el('label', { text: '채울 날' }, date), el('label', { text: '더할 시간(분)' }, minutes), submit),
+      el('p', { class: 'muted', text: `한 날에 더할 수 있는 시간은 하루 공부 시간(${data.dailyMinutes}분)까지예요.` }));
   }
 
-  function choice(number, title, text, ...content) {
-    return el('div', { class: 'choice' }, el('h3', {}, el('span', { class: 'step-no', text: String(number) }), title),
-      el('p', { class: 'muted', text }), ...content);
+  function answerButton(text, onClick) {
+    const button = el('button', { type: 'button', class: 'answer', text });
+    button.addEventListener('click', onClick);
+    return button;
   }
 
   function renderDay() {
     const day = data?.days.find(item => item.date === selected);
     if (!day) {
-      nodes.dayTitle.textContent = '날짜를 누르면 그날의 기록이 보입니다';
+      nodes.dayTitle.textContent = '날짜를 누르면 그날 기록이 보여요';
       nodes.dayBody.replaceChildren();
       return;
     }
     nodes.dayTitle.textContent = `${koreanDate(day.date)} · ${STATE_LABELS[day.state]}`;
     const facts = el('dl', { class: 'day-facts' });
     const fact = (label, value) => facts.append(el('div', {}, el('dt', { text: label }), el('dd', { text: value })));
-    if (day.assignedMinutes !== null) fact('배정', `${day.assignedMinutes}분`);
-    if (day.confirmedMinutes > 0 || ['recorded', 'today'].includes(day.state)) fact('확인된 공부', `${day.confirmedMinutes}분`);
-    if (day.lateMinutes > 0) fact('사후 기록', `${day.lateMinutes}분`);
-    if (day.makeupScheduledFor > 0) fact('잡아 둔 보완', `${day.makeupScheduledFor}분`);
-    if (day.makeupMinutes > 0) fact('이날 더한 보완 시간', `${day.makeupMinutes}분`);
-    if (day.plannedMinutes !== null) fact('예정', `${day.plannedMinutes}분`);
+    if (day.assignedMinutes !== null) fact('그날 할 것', `${day.assignedMinutes}분`);
+    if (day.confirmedMinutes > 0 || ['recorded', 'today'].includes(day.state)) fact('한 시간', `${day.confirmedMinutes}분`);
+    if (day.lateMinutes > 0) fact('나중에 적은 시간', `${day.lateMinutes}분`);
+    if (day.makeupScheduledFor > 0) fact('채우기로 한 시간', `${day.makeupScheduledFor}분`);
+    if (day.makeupMinutes > 0) fact('이날 더해진 시간', `${day.makeupMinutes}분`);
+    if (day.plannedMinutes !== null) fact('할 것', `${day.plannedMinutes}분`);
     const body = [facts];
     if (day.state === 'needs_review') {
-      body.push(el('p', { text: '이날은 공부 기록이 없습니다. 기록이 없는 날을 공부하지 않은 날로 보지 않으므로, 어떤 날이었는지 직접 확인해 주세요.' }));
-      body.push(choice(1, '공부했지만 기록을 못 했어요', '과업과 공부한 분을 적으면 「사후 기록」으로 남고, 그 과업의 남은 분량에서 빠집니다.', taskForm(day)));
-      const onlyReview = el('button', { type: 'button', text: '누락 확인만' });
-      onlyReview.addEventListener('click', () => run(() => post('/api/day-review', { date: day.date, status: 'missed' })));
-      body.push(choice(2, '공부하지 못했어요', '「누락 확인」으로 남기고, 빠진 분량을 채울 날과 시간을 고릅니다. 누락 확인만 하면 빠진 분량은 앞으로의 계획에 나눠 들어갑니다.',
-        makeupForm(day, { reviewFirst: true }), onlyReview));
-      const rest = el('button', { type: 'button', text: '쉬는 날이었어요' });
-      rest.addEventListener('click', () => run(() => post('/api/day-review', { date: day.date, status: 'rest' })));
-      body.push(choice(3, '쉬는 날이었어요', '계획한 휴식이었다면 휴식으로 남깁니다.', rest));
+      // Only the three answers first; the one that needs details opens its own fields (D024).
+      body.push(el('p', { class: 'ask-line', text: `${koreanDate(day.date)}은 기록이 없어요. 어땠어요?` }));
+      const late = el('div', { class: 'answer-detail' }, taskForm(day));
+      late.hidden = true;
+      body.push(el('div', { class: 'answers' },
+        answerButton('공부했는데 적는 걸 깜빡했어요', () => { late.hidden = false; late.querySelector('select, button')?.focus(); }),
+        answerButton('못 했어요', () => run(() => post('/api/day-review', { date: day.date, status: 'missed' }))),
+        answerButton('쉬는 날이었어요', () => run(() => post('/api/day-review', { date: day.date, status: 'rest' })))),
+      late);
+      body.push(el('p', { class: 'muted', text: '기록이 없는 날을 「안 한 날」로 치지 않아요. 한 번 고르면 바꿀 수 없으니 날짜를 먼저 확인해 주세요.' }));
     } else if (day.state === 'missed') {
-      body.push(choice(1, '보완 계획 더하기', '이 날 빠진 분량을 채울 날과 시간을 고릅니다.', makeupForm(day, { reviewFirst: false })));
+      body.push(el('p', { text: '빠진 공부는 앞으로의 계획에 나눠 들어가요. 따로 더 할 날을 정하고 싶으면 골라 주세요.' }), makeupForm(day));
     } else if (day.state === 'late') {
-      body.push(choice(1, '사후 기록 더하기', '같은 날 공부한 다른 과업이 있으면 더 적을 수 있습니다.', taskForm(day)));
+      body.push(el('p', { text: '같은 날 다른 공부도 했다면 더 적을 수 있어요.' }), taskForm(day));
     } else if (day.state === 'today') {
-      body.push(el('p', { class: 'muted', text: '오늘 공부는 이 창을 닫고 「실제 공부 시간 기록」에 적어 주세요.' }));
+      body.push(el('p', { class: 'muted', text: '오늘 공부는 이 창을 닫고 「오늘」 화면에서 적어 주세요.' }));
     }
     nodes.dayBody.replaceChildren(...body);
   }
 
   function renderMonth() {
     const summary = data.summary;
-    nodes.monthTitle.textContent = `${Number(month.slice(5))}월 점검 (한 달)`;
+    nodes.monthTitle.textContent = `${Number(month.slice(5))}월`;
     const stat = (value, label) => el('div', { class: 'stat' }, el('b', { text: value }), el('small', { text: label }));
     nodes.monthStats.replaceChildren(
-      stat(`${summary.recordedDays}일`, '기록한 날'), stat(`${summary.restDays}일`, '휴식'),
-      stat(`${summary.needsReviewDays}일`, '확인 필요'), stat(`${summary.missedDays}일`, '누락 확인'),
-      stat(`${summary.lateMinutes}분`, '사후 기록'), stat(`${summary.makeupMinutes}분`, '보완 예정'));
+      stat(`${summary.recordedDays}일`, '공부한 날'), stat(`${summary.restDays}일`, '쉰 날'),
+      stat(`${summary.needsReviewDays}일`, '기록 없는 날'), stat(`${summary.missedDays}일`, '못 한 날'),
+      stat(`${summary.lateMinutes}분`, '나중에 적은 시간'), stat(`${summary.makeupMinutes}분`, '채울 시간'));
     nodes.needsReview.replaceChildren(...(data.needsReview.length === 0
-      ? [el('li', { class: 'muted', text: '확인이 필요한 날이 없습니다.' })]
+      ? [el('li', { class: 'muted', text: '어땠는지 알려 줄 날이 없어요.' })]
       : data.needsReview.map(date => {
-        const button = el('button', { type: 'button', text: '확인하기' });
+        const button = el('button', { type: 'button', text: '알려 주기' });
         button.addEventListener('click', () => select(date));
         return el('li', { class: 'todo' }, el('span', { text: koreanDate(date) }), button);
       })));
-    const lines = [el('div', { class: 'signal ok' }, el('b', { text: `배정 ${summary.assignedMinutes}분 중 ${summary.confirmedMinutes}분을 확인했습니다` }),
-      el('span', { text: '사후 기록은 따로 셉니다. 이 숫자는 계획을 따른 양이며 실력이나 합격 가능성을 뜻하지 않습니다.' }))];
+    const lines = [el('div', { class: 'signal ok' }, el('b', { text: `할 것 ${summary.assignedMinutes}분 가운데 ${summary.confirmedMinutes}분을 했어요` }),
+      el('span', { text: '나중에 적은 시간은 따로 세요. 이 숫자는 계획을 따른 양일 뿐 실력이나 합격 가능성이 아니에요.' }))];
     for (const signal of data.signals) lines.push(el('div', { class: 'signal' }, el('span', { text: signal.message })));
     nodes.signals.replaceChildren(...lines);
+  }
+
+  // 「오늘」 화면의 한 줄: this month's days without a record, and a way to answer right there.
+  function renderPastAsk() {
+    const node = document.querySelector('#pastAsk');
+    if (!node) return;
+    const dates = month === today().slice(0, 7) ? data.needsReview : [];
+    node.hidden = dates.length === 0;
+    if (dates.length === 0) return;
+    const named = dates.slice(0, 3).map(date => `${Number(date.slice(5, 7))}월 ${dayNumber(date)}일`).join(', ');
+    const answer = el('button', { type: 'button', class: 'secondary', text: '어땠는지 알려 주기' });
+    answer.addEventListener('click', () => {
+      selected = dates[0];
+      renderGrid();
+      renderDay();
+      openDialog(answer);
+    });
+    node.replaceChildren(el('strong', { text: `${named}${dates.length > 3 ? ' 등' : ''}은 기록이 없어요. 어땠어요?` }), answer);
   }
 
   async function load() {
@@ -316,6 +329,7 @@ export function createCalendar({ api, run, today }) {
     renderDay();
     renderMonth();
     renderMini();
+    renderPastAsk();
   }
 
   function go(delta) {

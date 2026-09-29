@@ -101,8 +101,8 @@ function isDate(value) {
 
 // Why the session cannot be saved yet (null when it can). Moa's rule: a question and a first answer.
 export function saveBlocker(draft) {
-  if (!String(draft.question ?? '').trim()) return '문제를 먼저 입력하세요.';
-  if (!String(draft.firstAnswer ?? '').trim()) return '첫 답안을 먼저 작성하세요. 원문을 보기 전에 내 답을 먼저 씁니다.';
+  if (!String(draft.question ?? '').trim()) return '문제를 먼저 적어 주세요.';
+  if (!String(draft.firstAnswer ?? '').trim()) return '내 답을 먼저 써 주세요. 교재를 보기 전에 아는 만큼 쓰면 돼요.';
   return null;
 }
 
@@ -118,11 +118,8 @@ export function staleEvidence(session, source) {
 
 // Why comparison (step 3) cannot start yet (null when it can).
 export function lockBlocker(session) {
-  if (!session) return '먼저 1단에서 기록을 저장하세요.';
-  const blocker = saveBlocker(session);
-  if (blocker) return blocker;
-  if ((session.evidence ?? []).length === 0) return '2단에서 대조할 교재 쪽을 1개 이상 고르세요.';
-  return null;
+  if (!session) return '문제와 내 답을 먼저 적어 주세요.';
+  return saveBlocker(session);
 }
 
 // Creates or updates a session. After locking, the question, first answer and evidence keep their locked values.
@@ -196,22 +193,59 @@ export function lockSession(session, source, { now }) {
   const blocker = lockBlocker(session);
   if (blocker) throw new Error(blocker);
   if (session.locked) return session;
-  const evidence = session.evidence.map(ref => {
-    const page = source?.sourceId === ref.sourceId
-      ? source.pages.find(item => item.pdfPageIndex === ref.pdfPageIndex) : null;
-    if (!page || page.state !== 'draft') {
-      throw new Error(`고른 근거(PDF ${ref.pdfPageIndex}쪽)를 지금 교재에서 찾을 수 없습니다. 2단에서 근거를 다시 고르세요.`);
-    }
-    return {
-      sourceId: ref.sourceId,
-      pdfPageIndex: ref.pdfPageIndex,
-      printedPageLabel: page.printedPageLabel,
-      sourceTitle: source.title,
-      text: page.text.slice(0, EVIDENCE_TEXT_LIMIT),
-      truncated: page.text.length > EVIDENCE_TEXT_LIMIT,
-    };
-  });
+  const evidence = session.evidence.map(ref => evidenceEntry(source, ref.sourceId, ref.pdfPageIndex));
   return { ...session, evidence, locked: true, lockedAt: now, updatedAt: now };
+}
+
+// One textbook page copied into a session, so the comparison still reads the same text after a new registration.
+function evidenceEntry(source, sourceId, pdfPageIndex) {
+  const page = source?.sourceId === sourceId ? source.pages.find(item => item.pdfPageIndex === pdfPageIndex) : null;
+  if (!page || page.state !== 'draft') {
+    throw new Error(`교재 ${pdfPageIndex}쪽을 지금 교재에서 찾을 수 없어요. 교재를 다시 넣었다면 쪽을 다시 골라 주세요.`);
+  }
+  return {
+    sourceId,
+    pdfPageIndex,
+    printedPageLabel: page.printedPageLabel,
+    sourceTitle: source.title,
+    text: page.text.slice(0, EVIDENCE_TEXT_LIMIT),
+    truncated: page.text.length > EVIDENCE_TEXT_LIMIT,
+  };
+}
+
+// 「다른 쪽도 보기」: after comparison started, another textbook page can join the session (the answer stays fixed).
+export function addEvidence(session, source, pdfPageIndex, { now }) {
+  if (!session.locked) throw new Error('교재랑 맞춰 보기를 먼저 눌러 주세요.');
+  if (session.evidence.some(ref => ref.sourceId === source?.sourceId && ref.pdfPageIndex === pdfPageIndex)) return session;
+  if (session.evidence.length >= MAX_EVIDENCE) throw new Error(`교재 쪽은 ${MAX_EVIDENCE}개까지 볼 수 있어요.`);
+  return { ...session, evidence: [...session.evidence, evidenceEntry(source, source?.sourceId, pdfPageIndex)], updatedAt: now };
+}
+
+// Words of the question worth looking up in the textbook: two letters or more, common exam wording and trailing
+// particles dropped. Heuristic only — the learner can always pick other pages.
+const QUESTION_STOPWORDS = new Set(['설명하시오', '서술하시오', '논하시오', '제시하시오', '쓰시오', '비교하여', '대하여',
+  '관하여', '무엇인가', '무엇인지', '것을', '것이', '그리고', '또는', '다음', '각각', '방식을', '방식', '의미를']);
+const PARTICLES = /(으로|에서|에게|과|와|을|를|이|가|은|는|의|에|로|도|만)$/;
+
+export function questionWords(question) {
+  const words = String(question ?? '').split(/[^0-9A-Za-z가-힣]+/).map(word => word.trim()).filter(Boolean)
+    .map(word => (word.length >= 3 ? word.replace(PARTICLES, '') : word))
+    .filter(word => word.length >= 2 && !QUESTION_STOPWORDS.has(word));
+  return [...new Set(words)];
+}
+
+// The textbook pages that best match the question (most matches of its words first), for 「교재랑 맞춰 보기」.
+export function suggestEvidence(question, source, max = 2) {
+  if (!source) return [];
+  const words = questionWords(question);
+  if (words.length === 0) return [];
+  return source.pages.filter(page => page.state === 'draft')
+    .map(page => ({ pdfPageIndex: page.pdfPageIndex,
+      score: words.reduce((sum, word) => sum + matchRanges(page.text, word).length, 0) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.pdfPageIndex - b.pdfPageIndex)
+    .slice(0, max)
+    .map(item => ({ sourceId: source.sourceId, pdfPageIndex: item.pdfPageIndex }));
 }
 
 // 다시 풀기: a new unlocked session on the same question and evidence pages; answers start empty.
@@ -244,9 +278,23 @@ export const CAUSES = ['개념을 기억하지 못함', '비슷한 개념과 혼
 export const REVIEW_MINUTES_DEFAULT = 10;
 const NOTE_TASK_PREFIX = 'note:';
 
-// A session belongs to the 오답노트 once the learner names its main cause.
+// A problem is 「다시 볼 문제」 once the learner picks a day to see it again (D024: the cause is optional).
 export function isNote(session) {
-  return Boolean(session?.mainCause);
+  return Boolean(session?.reviewDate);
+}
+
+// D024: the learner picks one of four plain reasons; each stands for one of the exam vault's seven causes, which the
+// Wiki export keeps.
+export const STUDENT_CAUSES = [
+  { label: '몰랐어요', cause: '개념을 기억하지 못함' },
+  { label: '헷갈렸어요', cause: '비슷한 개념과 혼동함' },
+  { label: '문제를 잘못 읽었어요', cause: '문항 요구를 빠뜨림' },
+  { label: '시간이 없었어요', cause: '시간 배분 또는 검토 실패' },
+];
+
+// The plain label for a stored cause (older records may hold one of the other three causes: shown as stored).
+export function causeLabel(cause) {
+  return STUDENT_CAUSES.find(item => item.cause === cause)?.label ?? cause ?? '';
 }
 
 // One plan task per session and review date, so each review cycle is counted on its own.
@@ -308,7 +356,7 @@ export function reviewTasks({ sessions, state, today }) {
 export function reviewDateBlocker(session, state, today) {
   const cycle = session ? reviewCycle(session, state, today) : null;
   if (!cycle || !cycle.planned || cycle.done) return null;
-  return `${cycle.date} 복습이 계획에 들어가 있습니다. 「오답노트」에서 복습을 마친 뒤 다음 복습일을 고르세요.`;
+  return `${koreanDay(cycle.date)}에 다시 보기로 한 것이 할 일에 들어가 있어요. 다시 본 뒤에 날짜를 바꿀 수 있어요.`;
 }
 
 // Notes for the 오답노트 tab: reviews due now first, then by review date, then most recently edited.
@@ -324,16 +372,22 @@ export function noteItems({ sessions, state, today }) {
     || b.session.updatedAt.localeCompare(a.session.updatedAt));
 }
 
+// 「10월 2일」: dates in messages are written the way the learner says them.
+export function koreanDay(iso) {
+  const date = new Date(`${iso}T00:00:00`);
+  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
 // Why 「복습했어요」 cannot be used now (null when it can).
 export function completeBlocker(cycle) {
-  if (!cycle) return '복습일이 없습니다. 학습실 4단에서 복습일을 고르세요.';
-  if (!cycle.due) return `${cycle.date}에 복습할 차례가 됩니다.`;
-  if (cycle.done) return '이 복습은 마쳤습니다. 다음 복습일을 고르세요.';
+  if (!cycle) return '다시 볼 날을 먼저 골라 주세요.';
+  if (!cycle.due) return `${koreanDay(cycle.date)}에 다시 볼 차례가 돼요.`;
+  if (cycle.done) return '이미 다시 봤어요. 다음에 볼 날을 골라 주세요.';
   if (cycle.deferredNow) {
-    return '오늘 계획의 복습 몫이 차서 이 복습은 오늘 배정되지 않았습니다. 뒤 계획에 배정된 날 기록하세요.';
+    return '오늘은 복습 시간이 다 차서 이 문제가 할 일에 못 들어갔어요. 들어간 날 눌러 주세요.';
   }
   if (cycle.planned && !cycle.inCurrentPlan) {
-    return '지난 계획에 들어 있던 복습입니다. 「오늘 계획」에서 「남은 과업 다시 배정」을 누른 뒤 기록하세요.';
+    return '지난 할 일에 들어 있던 문제예요. 할 일에 다시 들어간 날 눌러 주세요.';
   }
   return null;
 }

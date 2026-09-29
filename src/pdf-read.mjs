@@ -47,6 +47,10 @@ export async function readPdfPages(pdfjs, { data, pages, cMapUrl, standardFontDa
   try {
     // Any encryption, even owner-only, is refused.
     if ((await doc.getMetadata()).info?.EncryptFilterName) throw new Error('encrypted PDF is not supported');
+    // { first: n } asks for the first n pages, however long the PDF is (D024: the learner need not know its length).
+    if (!Array.isArray(pages) && Number.isInteger(pages?.first)) {
+      pages = Array.from({ length: Math.min(pages.first, doc.numPages) }, (_, index) => index + 1);
+    }
     checkPages(pages, doc.numPages);
     const labels = await doc.getPageLabels();
     const results = [];

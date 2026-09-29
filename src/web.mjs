@@ -132,6 +132,7 @@ function buildSetup({ parts, sourceDir, draftDir, pdfConverter = convertPdf }) {
   }
   const { title, dailyMinutes, weeklyMinutes, tasks, selectedPages } =
     parseSetupFields(name => partText(parts, name));
+  if (!selectedPages) throw new Error('시작 페이지와 끝 페이지를 적어 주세요.');
   mkdirSync(sourceDir, { recursive: true });
   mkdirSync(draftDir, { recursive: true });
   const storedFile = join(sourceDir, `${randomUUID()}.pdf`);
