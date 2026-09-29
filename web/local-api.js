@@ -6,7 +6,8 @@ import { calendarFor, eventBuilder, isPdfBytes, localDate, parseSetupFields, pla
   statusFor, studentError, studentPdfError, textlessPages, writePaths, writeResponse } from './src/app-core.mjs';
 import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
-import { lockSession, MAX_SESSIONS, retakeSession, saveSession, sourcePages } from './src/study-core.mjs';
+import { completeBlocker, lockSession, MAX_SESSIONS, noteItems, retakeSession, reviewCycle, reviewDateBlocker, reviewTasks,
+  saveSession, sourcePages } from './src/study-core.mjs';
 
 const DB_NAME = 'challenge-master';
 const STORE = 'kv';
@@ -83,19 +84,25 @@ export function onChange(listener) {
 }
 
 let demoInput;
-async function runtimeFor(setup) {
+async function runtimeFor(setup, state, study) {
+  let runtime;
   if (setup) {
-    return { input: planInputFromSetup(setup), source: `local_setup:${setup.source.originalName}`, setup, storage: 'browser' };
+    runtime = { input: planInputFromSetup(setup), source: `local_setup:${setup.source.originalName}`, setup, storage: 'browser' };
+  } else {
+    demoInput ??= await (await fetch(new URL('./fixtures/synthetic-plan.json', import.meta.url))).json();
+    runtime = { input: structuredClone(demoInput), source: 'synthetic_demo', setup: null, storage: 'browser' };
   }
-  demoInput ??= await (await fetch(new URL('./fixtures/synthetic-plan.json', import.meta.url))).json();
-  return { input: structuredClone(demoInput), source: 'synthetic_demo', setup: null, storage: 'browser' };
+  // A-3: 오답 reviews whose date has come join the plan as review tasks (within the review share, not extra time).
+  runtime.input.tasks = [...runtime.input.tasks,
+    ...reviewTasks({ sessions: study?.sessions ?? [], state, today: localDate() })];
+  return runtime;
 }
 
 // Same paths and answers as the local app's /api routes, so app.js and calendar.js run unchanged.
 export async function request(path, body) {
   const url = new URL(path, 'https://challenge-master.invalid');
-  const saved = await transact(['setup', 'events'], 'readonly', values => values);
-  const runtime = await runtimeFor(saved.setup);
+  const saved = await transact(['setup', 'events', 'study'], 'readonly', values => values);
+  const runtime = await runtimeFor(saved.setup, replay(saved.events), saved.study);
   if (!body) {
     const state = replay(saved.events);
     if (url.pathname === '/api/status') return statusFor(state, runtime);
@@ -290,8 +297,13 @@ export async function studySessions() {
 
 export async function saveStudySession(input) {
   const now = new Date().toISOString();
-  return changeSessions([], sessions => {
+  return changeSessions(['events'], (sessions, values) => {
     const index = input.id ? findSession(sessions, input.id) : -1;
+    // A review already in a plan keeps its date until it is done (the plan still holds that task).
+    if (index >= 0 && input.reviewDate !== undefined && input.reviewDate !== sessions[index].reviewDate) {
+      const blocker = reviewDateBlocker(sessions[index], replay(values.events), localDate());
+      if (blocker) throw new Error(blocker);
+    }
     if (index < 0 && sessions.length >= MAX_SESSIONS) throw new Error(`학습 기록은 ${MAX_SESSIONS}개까지 저장합니다.`);
     const saved = saveSession(index >= 0 ? sessions[index] : null, input, { id: crypto.randomUUID(), now });
     if (index >= 0) sessions[index] = saved;
@@ -318,6 +330,54 @@ export async function retakeStudySession(id) {
     sessions.push(retake);
     return { sessions, value: retake };
   });
+}
+
+// ---- A-3 오답노트 ----
+
+export async function notesView() {
+  const values = await transact(['study', 'events'], 'readonly', saved => saved);
+  return noteItems({ sessions: sessionsOf(values), state: replay(values.events), today: localDate() });
+}
+
+// How a session's review stands, for the study room's review-date field.
+export async function reviewInfo(id) {
+  const values = await transact(['study', 'events'], 'readonly', saved => saved);
+  const session = sessionsOf(values).find(item => item.id === id);
+  if (!session) return { cycle: null, dateBlocker: null };
+  const state = replay(values.events);
+  return { cycle: reviewCycle(session, state, localDate()), dateBlocker: reviewDateBlocker(session, state, localDate()) };
+}
+
+// 「복습했어요」: a review in today's plan is recorded as study time on its plan task (the plan stays the record of
+// time spent); a review that never entered a plan is marked done on the note. Either way the note keeps a history.
+export async function completeReview(id) {
+  const values = await transact(['study', 'events'], 'readonly', saved => saved);
+  const session = sessionsOf(values).find(item => item.id === id);
+  if (!session) throw new Error('학습 기록을 찾을 수 없습니다. 새로고침해 주세요.');
+  const state = replay(values.events);
+  const cycle = reviewCycle(session, state, localDate());
+  const blocker = completeBlocker(cycle);
+  if (blocker) throw new Error(blocker);
+  if (cycle.inCurrentPlan) {
+    const allocated = state.currentPlan.allocations.filter(item => item.taskId === cycle.taskId)
+      .reduce((sum, item) => sum + item.minutes, 0);
+    const recorded = state.progress.filter(item => item.taskId === cycle.taskId && item.planVersion === state.currentPlan.planVersion)
+      .reduce((sum, item) => sum + item.completedMinutes, 0);
+    const minutes = Math.min(allocated - recorded, cycle.minutes - cycle.credited);
+    if (minutes > 0) await request('/api/progress', { requestId: crypto.randomUUID(), taskId: cycle.taskId, completedMinutes: minutes });
+    // Today's plan held only part of the review time: the rest stays planned and the note is not done yet.
+    if (cycle.credited + Math.max(minutes, 0) < cycle.minutes) return request('/api/status');
+  }
+  const now = new Date().toISOString();
+  await changeSessions([], sessions => {
+    const index = findSession(sessions, id);
+    const reviews = sessions[index].reviews ?? [];
+    if (!reviews.some(review => review.dueDate === cycle.date)) {
+      sessions[index] = { ...sessions[index], reviews: [...reviews, { dueDate: cycle.date, doneAt: now }], updatedAt: now };
+    }
+    return { sessions, value: null };
+  });
+  return request('/api/status');
 }
 
 export async function deleteStudySession(id) {

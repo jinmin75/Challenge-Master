@@ -12,6 +12,7 @@
       <a href="#plan" data-view="plan">오늘 계획</a>
       <a href="#source" data-view="source">교재</a>
       <a href="#study" data-view="study">학습실</a>
+      <a href="#notes" data-view="notes" id="notesTab">오답노트</a>
       <a href="#data" data-view="data">내 기록</a>
     </nav>
     <p id="errorMessage" class="error" role="alert" hidden></p>
@@ -199,6 +200,29 @@
         </aside>
         <div id="studyWork" class="panel study-work"></div>
       </div>
+    </section>
+
+    <section id="view-notes" class="view notes" hidden>
+      <div class="panel notes-head">
+        <p class="eyebrow">오답노트</p>
+        <h2>오답노트</h2>
+        <p class="muted">학습실 4단에서 「주된 원인」을 고른 기록이 모입니다. 복습일이 되면 그날 계획의 복습 몫에 「오답 복습」으로 배정됩니다. 하루 공부 시간은 늘리지 않습니다.</p>
+        <p id="notesSummary" class="muted"></p>
+        <div class="notes-filters">
+          <label>보기
+            <select id="notesScope">
+              <option value="due">지금 복습할 것</option>
+              <option value="all">모든 오답</option>
+            </select>
+          </label>
+          <label>주된 원인
+            <select id="notesCause">
+              <option value="">모든 원인</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <ul id="notesList" class="notes-list"></ul>
     </section>
 
     <section id="dataPanel" class="panel data" hidden>

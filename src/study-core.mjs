@@ -1,5 +1,6 @@
 // Study features of the web version (D023): pure helpers shared by the page and the unit tests.
 // No Node or browser APIs. Step A-1 turns the stored PDF extraction into readable pages and finds words in them.
+import { creditedTaskMinutes, originalTaskMinutes } from './events.mjs';
 
 // The draft keeps each page as a fenced ```text block (pdf-core.mjs); the reader shows the text inside.
 export function unfence(markdown = '') {
@@ -62,7 +63,7 @@ export function searchPages(pages, query) {
 export const MAX_SESSIONS = 2000;
 export const MAX_EVIDENCE = 8;
 const LIMITS = { subject: 120, goal: 500, studiedSection: 120, question: 20000, firstAnswer: 20000, missing: 4000,
-  mistaken: 4000, unverified: 4000, revision: 20000, reflection: 4000 };
+  mistaken: 4000, unverified: 4000, revision: 20000, reflection: 4000, nextAction: 500 };
 // Text kept from each evidence page when the session locks, so later registrations cannot change it.
 export const EVIDENCE_TEXT_LIMIT = 20000;
 
@@ -73,7 +74,8 @@ function text(value, field) {
 }
 
 const FIELD_NAMES = { subject: '과목', goal: '공부 목표', studiedSection: '학습 위치', question: '문제', firstAnswer: '첫 답안',
-  missing: '빠진 것', mistaken: '잘못 알고 있던 것', unverified: '아직 확인하지 못한 것', revision: '수정 답안', reflection: '복습 메모' };
+  missing: '빠진 것', mistaken: '잘못 알고 있던 것', unverified: '아직 확인하지 못한 것', revision: '수정 답안', reflection: '복습 메모',
+  nextAction: '다음 연습' };
 
 export function sessionTitle(session) {
   const subject = session.subject.trim();
@@ -114,7 +116,9 @@ export function lockBlocker(session) {
 
 // Creates or updates a session. After locking, the question, first answer and evidence keep their locked values.
 export function saveSession(previous, input, { id, now }) {
-  const blocker = saveBlocker(previous?.locked ? previous : input);
+  // Judge the values that would be stored: fields left out of the input keep their saved values.
+  const blocker = saveBlocker(previous?.locked ? previous : {
+    question: input.question ?? previous?.question, firstAnswer: input.firstAnswer ?? previous?.firstAnswer });
   if (blocker) throw new Error(blocker);
   const locked = previous?.locked === true;
   const evidence = locked ? previous.evidence : normalizeEvidenceRefs(input.evidence ?? previous?.evidence ?? []);
@@ -140,7 +144,25 @@ export function saveSession(previous, input, { id, now }) {
     revision: field('revision'),
     reflection: field('reflection'),
     reviewDate,
+    ...causes(input, previous),
+    nextAction: field('nextAction'),
+    reviewMinutes: reviewMinutes(input.reviewMinutes ?? previous?.reviewMinutes ?? REVIEW_MINUTES_DEFAULT),
+    reviews: previous?.reviews ?? [],
   };
+}
+
+function causes(input, previous) {
+  const mainCause = String(input.mainCause ?? previous?.mainCause ?? '');
+  if (mainCause && !CAUSES.includes(mainCause)) throw new Error('오답 원인을 목록에서 고르세요.');
+  const other = input.otherCauses ?? previous?.otherCauses ?? [];
+  if (!Array.isArray(other) || other.some(cause => !CAUSES.includes(cause))) throw new Error('함께 나타난 원인을 목록에서 고르세요.');
+  return { mainCause, otherCauses: [...new Set(other)].filter(cause => cause !== mainCause) };
+}
+
+function reviewMinutes(value) {
+  const minutes = Number(value);
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 120) throw new Error('복습에 쓸 시간은 5~120분 사이의 정수로 적어 주세요.');
+  return minutes;
 }
 
 function normalizeEvidenceRefs(refs) {
@@ -195,5 +217,102 @@ export function retakeSession(session, { id, now }) {
     locked: false,
     lockedAt: null,
     missing: '', mistaken: '', unverified: '', revision: '', reflection: '', reviewDate: '',
+    mainCause: '', otherCauses: [], nextAction: '', reviewMinutes: session.reviewMinutes ?? REVIEW_MINUTES_DEFAULT, reviews: [],
   };
+}
+
+// ---- A-3 오답노트와 복습 배정 ----
+
+// The seven causes from the exam vault prompt 「오답 원인 분류하기」 (04_오답과_주간복습.md).
+export const CAUSES = ['개념을 기억하지 못함', '비슷한 개념과 혼동함', '문항 요구를 빠뜨림', '근거 없이 추정함',
+  '알고 있었지만 답안으로 조직하지 못함', '시간 배분 또는 검토 실패', '현재 자료만으로 분류할 수 없음'];
+export const REVIEW_MINUTES_DEFAULT = 10;
+const NOTE_TASK_PREFIX = 'note:';
+
+// A session belongs to the 오답노트 once the learner names its main cause.
+export function isNote(session) {
+  return Boolean(session?.mainCause);
+}
+
+// One plan task per session and review date, so each review cycle is counted on its own.
+export function reviewTaskId(sessionId, date) {
+  return `${NOTE_TASK_PREFIX}${sessionId}:${date}`;
+}
+
+function planItems(state) {
+  return (state?.plans ?? []).flatMap(plan => [...plan.allocations, ...plan.deferred]);
+}
+
+// Where the current review of a note stands. The plan is the record of time spent: a planned review is done when
+// its minutes are fully credited; a review that never entered a plan is done when the learner marks it directly.
+export function reviewCycle(session, state, today) {
+  const date = session.reviewDate;
+  if (!date) return null;
+  const taskId = reviewTaskId(session.id, date);
+  const planned = planItems(state).some(item => item.taskId === taskId);
+  const minutes = planned ? originalTaskMinutes(state, taskId) : session.reviewMinutes ?? REVIEW_MINUTES_DEFAULT;
+  const credited = planned ? creditedTaskMinutes(state, taskId) : 0;
+  const markedDone = (session.reviews ?? []).some(review => review.dueDate === date);
+  const current = state?.currentPlan?.allocations.find(item => item.taskId === taskId) ?? null;
+  return {
+    date,
+    taskId,
+    due: date <= today,
+    planned,
+    inCurrentPlan: Boolean(current),
+    minutes,
+    credited,
+    done: markedDone || (planned && credited >= minutes),
+  };
+}
+
+// Plan tasks for 오답 reviews: every review task that already entered a plan keeps its first estimate (replanning
+// requires every prior task), and each note whose review date has come and is not done adds one task.
+export function reviewTasks({ sessions, state, today }) {
+  const tasks = new Map();
+  for (const item of planItems(state)) {
+    if (!item.taskId.startsWith(NOTE_TASK_PREFIX) || tasks.has(item.taskId)) continue;
+    tasks.set(item.taskId, { id: item.taskId, title: item.title ?? '오답 복습', kind: 'review',
+      minutes: originalTaskMinutes(state, item.taskId), splittable: true, dueDate: item.taskId.slice(-10) });
+  }
+  for (const session of sessions ?? []) {
+    if (!isNote(session)) continue;
+    const cycle = reviewCycle(session, state, today);
+    if (!cycle || !cycle.due || cycle.done || tasks.has(cycle.taskId)) continue;
+    tasks.set(cycle.taskId, { id: cycle.taskId, title: `오답 복습: ${sessionTitle(session)}`.slice(0, 120), kind: 'review',
+      minutes: cycle.minutes, splittable: true, dueDate: cycle.date });
+  }
+  return [...tasks.values()];
+}
+
+// Why the review date cannot change now (null when it can): a review already in a plan must be finished first,
+// or the plan would keep a task the learner meant to move.
+export function reviewDateBlocker(session, state, today) {
+  const cycle = session ? reviewCycle(session, state, today) : null;
+  if (!cycle || !cycle.planned || cycle.done) return null;
+  return `${cycle.date} 복습이 계획에 들어가 있습니다. 「오답노트」에서 복습을 마친 뒤 다음 복습일을 고르세요.`;
+}
+
+// Notes for the 오답노트 tab: reviews due now first, then by review date, then most recently edited.
+export function noteItems({ sessions, state, today }) {
+  return (sessions ?? []).filter(isNote).map(session => {
+    const cycle = reviewCycle(session, state, today);
+    const overdueDays = cycle && cycle.due && !cycle.done
+      ? Math.round((new Date(`${today}T00:00:00`) - new Date(`${cycle.date}T00:00:00`)) / 86400000) : 0;
+    return { session, title: sessionTitle(session), mainCause: session.mainCause, otherCauses: session.otherCauses ?? [],
+      cycle, overdueDays, dueNow: Boolean(cycle && cycle.due && !cycle.done) };
+  }).sort((a, b) => (Number(b.dueNow) - Number(a.dueNow))
+    || (a.cycle?.date ?? '9999-12-31').localeCompare(b.cycle?.date ?? '9999-12-31')
+    || b.session.updatedAt.localeCompare(a.session.updatedAt));
+}
+
+// Why 「복습했어요」 cannot be used now (null when it can).
+export function completeBlocker(cycle) {
+  if (!cycle) return '복습일이 없습니다. 학습실 4단에서 복습일을 고르세요.';
+  if (!cycle.due) return `${cycle.date}에 복습할 차례가 됩니다.`;
+  if (cycle.done) return '이 복습은 마쳤습니다. 다음 복습일을 고르세요.';
+  if (cycle.planned && !cycle.inCurrentPlan) {
+    return '지난 계획에 들어 있던 복습입니다. 「오늘 계획」에서 「남은 과업 다시 배정」을 누른 뒤 기록하세요.';
+  }
+  return null;
 }

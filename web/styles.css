@@ -550,6 +550,121 @@ button.danger:hover {
   max-width: 240px;
 }
 
+.cause-block {
+  margin-top: 14px;
+  border-top: 1px solid #ecefe5;
+  padding-top: 10px;
+}
+
+.cause-block h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.cause-others {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  border: 1px solid #ecefe5;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.cause-others legend {
+  padding: 0 4px;
+  color: #3f4857;
+  font-weight: 600;
+}
+
+.cause-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-weight: 500;
+}
+
+.cause-choice input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.notes-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.notes-filters label {
+  min-width: 200px;
+  margin: 6px 0 0;
+}
+
+.notes-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-card {
+  border: 1px solid #d9decf;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.note-card.due {
+  border: 2px solid #b8893a;
+  background: #fffdf6;
+}
+
+.note-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  word-break: keep-all;
+}
+
+.cause-chip {
+  border-radius: 4px;
+  padding: 2px 8px;
+  color: #842a2a;
+  background: #fbe4e4;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.note-status {
+  margin: 8px 0;
+  font-weight: 600;
+}
+
+.note-status.due {
+  color: #8a4d00;
+}
+
+.note-actions,
+.note-date {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.note-date label {
+  max-width: 220px;
+  margin: 0;
+}
+
 .study-foot {
   margin: 14px 0 0;
   text-align: right;

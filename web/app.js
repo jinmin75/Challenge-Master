@@ -5,6 +5,7 @@ const browserMode = document.documentElement.dataset.mode === 'browser';
 const localApi = browserMode ? await import('./local-api.js') : null;
 const sourceModule = browserMode ? await import('./source-view.js') : null;
 const studyModule = browserMode ? await import('./study-view.js') : null;
+const notesModule = browserMode ? await import('./notes-view.js') : null;
 const BACKUP_REMINDER_DAYS = 7;
 
 const elements = {
@@ -127,6 +128,8 @@ function render(status) {
     renderDataPanel().catch(showError);
     if (currentView() === 'source') sourceView.update().catch(showError);
     if (currentView() === 'study') studyView.update().catch(showError);
+    if (currentView() === 'notes') notesView.update().catch(showError);
+    updateNotesTab().catch(showError);
   }
 
   visibleAllocations = plan?.allocations ?? [];
@@ -283,11 +286,26 @@ function download(fileName, text) {
 }
 
 // Web version screens (D023): tabs switch views by the address hash, so back/forward and bookmarks work.
-const VIEWS = ['plan', 'source', 'study', 'data'];
+const VIEWS = ['plan', 'source', 'study', 'notes', 'data'];
 const viewNodes = { plan: document.querySelector('#view-plan'), source: document.querySelector('#view-source'),
-  study: document.querySelector('#view-study'), data: elements.dataPanel };
+  study: document.querySelector('#view-study'), notes: document.querySelector('#view-notes'), data: elements.dataPanel };
 const sourceView = sourceModule ? sourceModule.createSourceView({ load: () => localApi.sourceView() }) : null;
-const studyView = studyModule ? studyModule.createStudyView({ api: localApi }) : null;
+const studyView = studyModule ? studyModule.createStudyView({ api: localApi, onChange: () => updateNotesTab() }) : null;
+const notesView = notesModule ? notesModule.createNotesView({
+  api: localApi,
+  openInStudy: id => {
+    studyView.open(id, 4);
+    location.hash = '#study';
+  },
+  // A recorded review changes today's plan numbers; redraw the plan tab too.
+  afterChange: () => refresh(),
+}) : null;
+
+// The tab shows how many 오답 reviews are due now.
+async function updateNotesTab() {
+  const due = (await localApi.notesView()).filter(item => item.dueNow).length;
+  document.querySelector('#notesTab').textContent = due > 0 ? `오답노트 (${due})` : '오답노트';
+}
 
 function currentView() {
   const name = location.hash.slice(1);
@@ -300,8 +318,11 @@ function showView() {
   for (const link of document.querySelectorAll('#appTabs a')) {
     link.setAttribute('aria-current', link.dataset.view === name ? 'page' : 'false');
   }
+  // The plan tab re-reads the records: study and 오답노트 actions change today's review tasks.
+  if (name === 'plan') refresh().catch(showError);
   if (name === 'source') sourceView.update().catch(showError);
   if (name === 'study') studyView.update().catch(showError);
+  if (name === 'notes') notesView.update({ fresh: true }).catch(showError);
 }
 
 if (localApi) {

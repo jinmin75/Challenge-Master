@@ -1,7 +1,8 @@
 // 학습실 (D023 A-2): Moa's four steps without AI — question and first answer → evidence pages → compare with the
 // original → revised answer and review date. Checked against docs/moa-lessons.md:
 // #1 every disabled button shows why, next to it; #2 every action redraws the whole view from stored records.
-import { lockBlocker, MAX_EVIDENCE, saveBlocker, searchPages, sessionStatus, sessionTitle } from './src/study-core.mjs';
+import { CAUSES, lockBlocker, MAX_EVIDENCE, REVIEW_MINUTES_DEFAULT, saveBlocker, searchPages, sessionStatus,
+  sessionTitle } from './src/study-core.mjs';
 
 const STEPS = [
   { n: 1, name: '문제와 첫 답안' },
@@ -10,7 +11,7 @@ const STEPS = [
   { n: 4, name: '수정 답안과 복습' },
 ];
 const FIELDS = ['subject', 'goal', 'studiedSection', 'question', 'firstAnswer', 'missing', 'mistaken', 'unverified',
-  'revision', 'reflection', 'reviewDate'];
+  'revision', 'reflection', 'reviewDate', 'mainCause', 'nextAction', 'reviewMinutes'];
 
 function el(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
@@ -27,7 +28,8 @@ function el(tag, attributes = {}, ...children) {
 
 function emptySession() {
   return { id: null, subject: '', goal: '', studiedSection: '', question: '', firstAnswer: '', evidence: [], locked: false,
-    missing: '', mistaken: '', unverified: '', revision: '', reflection: '', reviewDate: '', parentId: null };
+    missing: '', mistaken: '', unverified: '', revision: '', reflection: '', reviewDate: '', parentId: null,
+    mainCause: '', otherCauses: [], nextAction: '', reviewMinutes: REVIEW_MINUTES_DEFAULT };
 }
 
 function pageLabel(page) {
@@ -39,7 +41,7 @@ function shortDate(iso) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
-export function createStudyView({ api }) {
+export function createStudyView({ api, onChange = async () => {} }) {
   const root = document.querySelector('#view-study');
   const listNode = root.querySelector('#studyList');
   const newButton = root.querySelector('#studyNew');
@@ -52,6 +54,8 @@ export function createStudyView({ api }) {
   let evidenceQuery = '';
   let evidenceFocus = null;
   let shownEvidence = 0;
+  let review = { cycle: null, dateBlocker: null };
+  let pendingOpen = null;
   const notes = {};
 
   function field(name) {
@@ -65,6 +69,10 @@ export function createStudyView({ api }) {
       const node = field(name);
       values[name] = node ? node.value : current[name];
     }
+    values.reviewMinutes = Number(values.reviewMinutes);
+    const boxes = workNode.querySelectorAll('[data-other-cause]');
+    values.otherCauses = boxes.length > 0
+      ? [...boxes].filter(box => box.checked).map(box => box.value) : current.otherCauses ?? [];
     return values;
   }
 
@@ -81,20 +89,37 @@ export function createStudyView({ api }) {
       note(step, error.message, 'error');
     }
     await reload();
+    // Other tabs show counts derived from these records (오답노트 tab); keep them current (moa-lessons #2).
+    await onChange();
   }
 
   function confirmLeave() {
     return !dirty || window.confirm('저장하지 않은 내용이 있습니다. 저장하지 않고 옮길까요?');
   }
 
-  function select(session, step = 1) {
+  // Switches the shown record without drawing (callers draw once everything it needs is loaded).
+  function setCurrent(session, step = 1) {
     current = session ? structuredClone(session) : emptySession();
     openStep = step;
     dirty = false;
     shownEvidence = 0;
     evidenceFocus = null;
+    review = { cycle: null, dateBlocker: null };
     for (const key of Object.keys(notes)) delete notes[key];
+  }
+
+  function select(session, step = 1) {
+    setCurrent(session, step);
     render();
+    // The review-date lock depends on the plan; load it, then draw again with it.
+    if (current.id) {
+      const id = current.id;
+      api.reviewInfo(id).then(info => {
+        if (current.id !== id) return;
+        review = info;
+        rerender();
+      }).catch(() => {});
+    }
   }
 
   // ---- step bodies ----
@@ -270,15 +295,40 @@ export function createStudyView({ api }) {
     if (!current.locked) {
       return [el('p', { class: 'blocked-reason', text: '잠김: 3단에서 원문과 대조한 뒤에 고쳐 씁니다.' })];
     }
-    const clearDate = el('button', { type: 'button', class: 'link-button', text: '복습일 지우기' });
+    const dateLocked = Boolean(review.dateBlocker);
+    const clearDate = el('button', { type: 'button', class: 'link-button', text: '복습일 지우기', disabled: dateLocked });
     clearDate.addEventListener('click', () => {
       field('reviewDate').value = '';
       dirty = true;
     });
+    const main = el('select', { 'data-field': 'mainCause' },
+      el('option', { value: '', text: '고르지 않음 — 오답노트에 넣지 않음' }),
+      ...CAUSES.map(cause => el('option', { value: cause, text: cause })));
+    main.value = current.mainCause ?? '';
+    main.addEventListener('change', () => {
+      dirty = true;
+      rerender();
+    });
+    const others = el('fieldset', { class: 'cause-others' }, el('legend', { text: '함께 나타난 원인(여러 개 고를 수 있음)' }),
+      ...CAUSES.filter(cause => cause !== current.mainCause).map(cause => {
+        const box = el('input', { type: 'checkbox', 'data-other-cause': '', value: cause });
+        box.checked = (current.otherCauses ?? []).includes(cause);
+        box.addEventListener('change', () => { dirty = true; });
+        return el('label', { class: 'cause-choice' }, box, ` ${cause}`);
+      }));
     return [
       textInput('revision', '수정 답안', { multiline: true, rows: 7 }),
       textInput('reflection', '복습 메모(다음에 먼저 볼 것)', { multiline: true, rows: 3 }),
-      el('div', { class: 'review-date' }, textInput('reviewDate', '복습일(직접 고릅니다)', { type: 'date' }), clearDate),
+      el('div', { class: 'cause-block' },
+        el('h4', { text: '오답 원인' }),
+        el('p', { class: 'muted', text: '주된 원인을 고르면 이 기록이 「오답노트」에 들어가고, 복습일이 되면 그날 계획의 복습 몫에 배정됩니다.' }),
+        el('label', {}, '주된 원인', main),
+        current.mainCause ? others : null,
+        current.mainCause ? textInput('nextAction', '다음 연습에서 할 일(두 가지까지)', { multiline: true, rows: 2 }) : null,
+        current.mainCause ? textInput('reviewMinutes', '복습에 쓸 시간(분, 5~120)', { type: 'number' }) : null),
+      el('div', { class: 'review-date' },
+        textInput('reviewDate', '복습일(직접 고릅니다)', { type: 'date', readOnly: dateLocked }), clearDate,
+        dateLocked ? el('span', { class: 'blocked-reason', 'data-reason': '복습일', text: `잠김: ${review.dateBlocker}` }) : null),
       el('div', { class: 'actions' },
         guardedButton({ label: '저장', step: 4, blocker: () => null, onClick: async () => {
           current = await api.saveStudySession(draft());
@@ -289,7 +339,8 @@ export function createStudyView({ api }) {
           blocker: () => (dirty ? '바꾼 내용을 먼저 저장하세요.' : null),
           onClick: async () => {
             const retake = await api.retakeStudySession(current.id);
-            select(retake, 1);
+            // act() reloads and draws once; drawing here would show the new record beside a stale list.
+            setCurrent(retake, 1);
             note(1, '같은 문제로 새 기록을 만들었습니다. 첫 답안부터 다시 쓰세요.');
           } })),
       stepNote(4),
@@ -345,10 +396,7 @@ export function createStudyView({ api }) {
         act(openStep || 1, remove, async () => {
           await api.deleteStudySession(current.id);
           // Draw once, after the list reloads (act → reload), so the deleted record never shows as current.
-          current = emptySession();
-          openStep = 1;
-          dirty = false;
-          for (const key of Object.keys(notes)) delete notes[key];
+          setCurrent(null);
         });
       });
       return el('p', { class: 'study-foot' }, remove);
@@ -370,8 +418,19 @@ export function createStudyView({ api }) {
 
   // Reloads records and redraws everything (moa-lessons #2); keeps unsaved form values.
   async function reload() {
-    const keep = dirty ? draft() : null;
+    let keep = dirty ? draft() : null;
     [sessions, source] = await Promise.all([api.studySessions(), api.sourceView()]);
+    if (pendingOpen) {
+      const target = sessions.find(item => item.id === pendingOpen.id);
+      // Switching records from another tab: unsaved edits of the previous record must not leak into this one.
+      if (target && (target.id === current.id || confirmLeave())) {
+        if (target.id !== current.id) keep = null;
+        // Draw only after the review info below is loaded, so a locked date never looks editable.
+        setCurrent(target, pendingOpen.step);
+      }
+      pendingOpen = null;
+    }
+    review = current.id ? await api.reviewInfo(current.id) : { cycle: null, dateBlocker: null };
     if (current.id) {
       const stored = sessions.find(item => item.id === current.id);
       current = stored ? { ...structuredClone(stored), ...(keep ? pick(keep) : {}) } : emptySession();
@@ -381,7 +440,7 @@ export function createStudyView({ api }) {
 
   function pick(values) {
     const editable = current.locked ? FIELDS.filter(name => !['question', 'firstAnswer'].includes(name)) : FIELDS;
-    return Object.fromEntries(editable.map(name => [name, values[name]]));
+    return { ...Object.fromEntries(editable.map(name => [name, values[name]])), otherCauses: values.otherCauses };
   }
 
   newButton.addEventListener('click', () => {
@@ -391,5 +450,9 @@ export function createStudyView({ api }) {
 
   return {
     update: reload,
+    // Opens a record from another tab (오답노트); the view loads it on its next update.
+    open(id, step = 4) {
+      pendingOpen = { id, step };
+    },
   };
 }

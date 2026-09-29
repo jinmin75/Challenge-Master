@@ -256,6 +256,52 @@ async function checkEngine(name, playwright) {
     await page.click('#appTabs a[href="#data"]');
     if (shots) await page.locator('#dataPanel').screenshot({ path: join(shots, `${name}-data.png`) });
 
+    // A-3 오답노트: a cause puts the record in the notes; on its review date it joins today's plan within the review
+    // share; while planned its date is locked (reason shown); 「복습했어요」 records its time in the plan.
+    await page.click('#appTabs a[href="#study"]');
+    await page.locator('.session-item').first().click();
+    await page.click('[data-step="4"] .step-toggle');
+    await page.selectOption('[data-field="mainCause"]', '개념을 기억하지 못함');
+    await page.locator('[data-other-cause][value="문항 요구를 빠뜨림"]').check();
+    await page.fill('[data-field="nextAction"]', '형성평가의 목적부터 말하기');
+    await page.fill('[data-field="reviewDate"]', offset(0));
+    await page.locator('[data-action="저장"]').click();
+    await waitText(page, '[data-note="4"]', '저장했습니다');
+    await waitText(page, '#notesTab', '오답노트 (1)');
+    await page.click('#appTabs a[href="#notes"]');
+    await waitText(page, '#notesList', '아직 계획에 들어가지 않음');
+    assert.match(await text(page, '#notesList'), /함께 나타난 원인: 문항 요구를 빠뜨림/);
+    await page.click('#appTabs a[href="#plan"]');
+    await page.locator('#startButton').click();
+    await waitText(page, '#allocations', '오답 복습');
+    await page.click('#appTabs a[href="#notes"]');
+    await waitText(page, '#notesList', '오늘 계획에 있음(기록 0/10분)');
+    assert.equal(await page.locator('[data-action="복습일 저장"]').isDisabled(), true);
+    assert.match(await text(page, '[data-reason="복습일 저장"]'), /잠김: 계획에 들어간 복습을 먼저 마치세요/);
+    await page.locator('.note-card button.secondary', { hasText: '학습실에서 열기' }).click();
+    // The study view keeps its last drawing while it reloads; wait for the lock reason of this record.
+    await page.locator('[data-reason="복습일"]').waitFor();
+    assert.equal(await page.locator('[data-field="reviewDate"]').getAttribute('readonly'), '');
+    assert.match(await text(page, '[data-reason="복습일"]'), /계획에 들어가 있습니다/);
+    await page.click('#appTabs a[href="#notes"]');
+    await page.locator('[data-action="복습했어요"]').click();
+    await waitText(page, '#notesList', '복습을 기록했습니다');
+    await waitText(page, '#notesList', '복습을 마쳤습니다');
+    await waitText(page, '#confirmedMinutes', '15분');
+    await page.fill('.note-date input[type=date]', offset(7));
+    await page.locator('[data-action="복습일 저장"]').click();
+    await waitText(page, '#notesList', `다음 복습일을 ${offset(7)}로 정했습니다`);
+    await waitText(page, '#notesList', `복습일 ${offset(7)}`);
+    // Opening the tab again shows only reviews due now.
+    await page.click('#appTabs a[href="#plan"]');
+    await page.click('#appTabs a[href="#notes"]');
+    await waitText(page, '#notesList', '지금 복습할 오답이 없습니다');
+    await page.selectOption('#notesScope', 'all');
+    await waitText(page, '#notesList', `복습일 ${offset(7)}`);
+    assert.match(await text(page, '[data-reason="복습했어요"]'), new RegExp(`${offset(7)}에 복습할 차례가 됩니다`));
+    await page.waitForFunction(() => document.querySelector('#notesTab').textContent === '오답노트');
+    if (shots) await page.locator('#view-notes').screenshot({ path: join(shots, `${name}-notes.png`) });
+
     await page.setViewportSize({ width: 390, height: 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll on a phone');
     assert.deepEqual([watch.consoleErrors, watch.failedRequests, watchSecond.consoleErrors], [[], [], []]);
