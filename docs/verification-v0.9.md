@@ -4,9 +4,9 @@
 
 | 산출물 | 위치 |
 |---|---|
-| 웹 버전 0.9.0 | 가지 `study`. main에 합치면 `https://jinmin75.github.io/Challenge-Master/`에 배포된다(`pages` 워크플로) |
+| 웹 버전 0.9.0 | `https://jinmin75.github.io/Challenge-Master/` (`2026-09-29` main 합침, `pages` 실행 36521960222가 배포 게이트 통과 뒤 배포) |
 | 정적 사이트 구성 | `node scripts/build-web.mjs`로 만든 225개 파일, 약 5.9MB |
-| 학생 가이드 | [웹 가이드](pilot/guide/guide-web.html), A4 PDF 30쪽. 화면 사진은 `pilot/guide/tools/shots-v09.mjs`로 합성 기록에서 찍음 |
+| 학생 가이드 | [웹 가이드](pilot/guide/guide-web.html), A4 PDF 30쪽(공유폴더의 가이드를 이 판으로 교체). 화면 사진은 `pilot/guide/tools/shots-v09.mjs`로 합성 기록에서 찍음 |
 
 ## v0.8 대비 변경
 
@@ -29,7 +29,8 @@
 | 웹 버전 학생 흐름(L26~L38) | 이 PC에서 빌드를 `/Challenge-Master/` 하위 경로로 제공, Chrome 153·Playwright WebKit 26.6 | 두 엔진 모두 2회 연속 통과 |
 | 가이드 독립 비평 | 새 맥락의 에이전트가 가이드 문장을 화면 코드와 대조(25건 보고) | 코드 결함 2건(다시 등록 뒤 근거 대조 불가, 밀린 복습의 틀린 잠김 이유)과 v0.8부터 틀린 문장 1건(「이번 주 공부 시간」이 쉬는 날을 만든다)을 확인해 고침. 보고 중 1건(「작성 중」은 목록에 안 나온다)은 코드로 확인해 틀린 지적으로 판정 |
 | 입력 보존 | 탭을 바꾼 직후 입력, 저장 전 새로고침 | 다시 읽기가 입력을 지우던 경쟁 조건(시험 2회 중 1회 실패)을 고친 뒤 반복 통과, 새로고침 전 확인 창 |
-| CI `packages` | GitHub windows·macOS·ubuntu 단위 시험, macOS 앱(arm64)·Intel 시험(실행 36517741438) | 통과 |
+| 같은 시험을 배포된 주소에 | `https://jinmin75.github.io/Challenge-Master/`, Chrome 153·WebKit 26.6 | 두 엔진 모두 2회 연속 통과, 사이트 밖 요청 0 |
+| CI `packages` | GitHub windows·macOS·ubuntu 단위 시험, macOS 앱(arm64)·Intel 시험(실행 36517741438, main 36521960220) | 통과 |
 | 설치판 캘린더 흐름(L25) | 이 PC Chrome(`scripts/browser-calendar.mjs`) | 통과 |
 | 설치판 등록~종료 흐름 | 이 PC Chrome(`scripts/browser-installed.mjs node src/desktop.mjs --no-browser`) | 통과 |
 | 클립보드 복사(B) | Chrome(읽기·쓰기 권한)·WebKit(읽기 권한) | 복사한 요청문을 다시 읽어 글자 단위 일치, 복사 거부 시 수동 안내 |
