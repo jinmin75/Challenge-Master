@@ -77,8 +77,9 @@ function studyData(session, includeSource, extra = []) {
   const { lines } = evidenceText(session, includeSource);
   return [
     '[학습 자료]',
-    `과목: ${session.subject || '적지 않음'}`,
-    `공부 목표: ${session.goal || '적지 않음'}`,
+    // Records from before D024 may carry a subject and a goal; newer ones do not ask for them.
+    ...(session.subject ? [`과목: ${session.subject}`] : []),
+    ...(session.goal ? [`공부 목표: ${session.goal}`] : []),
     '문제:', '"""', session.question, '"""',
     '제 첫 답안(원문을 보기 전에 쓴 것):', '"""', session.firstAnswer, '"""',
     ...extra,
@@ -140,7 +141,8 @@ function candidateFields(line) {
 // 「[학습로그 후보]」 lines → up to five candidates. Unknown types are skipped rather than guessed.
 export function parseCandidates(text) {
   const lines = String(text ?? '').split(/\r?\n/);
-  const start = lines.findIndex(line => /학습로그\s*후보/.test(line));
+  // 「[학습로그 후보]」 is what the request asks for; 「메모 후보」 (the screen's word) is read the same way.
+  const start = lines.findIndex(line => /(학습로그|메모)\s*후보/.test(line));
   if (start < 0) return [];
   const candidates = [];
   for (const line of lines.slice(start + 1)) {

@@ -91,6 +91,7 @@ export function createCalendar({ api, run, today }) {
   };
   if (!nodes.grid) return { update() {} };
   let opener = null;
+  let previousNeeds = [];
   let month = today().slice(0, 7);
   let data = null;
   let selected = null;
@@ -224,13 +225,13 @@ export function createCalendar({ api, run, today }) {
   function makeupForm(day) {
     const from = today();
     const dates = Array.from({ length: 14 }, (_, index) => addDays(from, index + 1));
-    const date = el('select', { 'aria-label': '채울 날' }, ...dates.map(value => el('option', { value, text: koreanDate(value) })));
+    const date = el('select', { 'aria-label': '더 할 날' }, ...dates.map(value => el('option', { value, text: koreanDate(value) })));
     const minutes = el('input', { type: 'number', min: '1', max: String(data.dailyMinutes), step: '1',
       value: String(Math.min(30, data.dailyMinutes)), 'aria-label': '더할 시간(분)' });
-    const submit = el('button', { type: 'button', text: '채울 날 정하기' });
+    const submit = el('button', { type: 'button', text: '이날 더 하기' });
     submit.addEventListener('click', () => run(() => post('/api/makeup', { forDate: day.date, date: date.value, minutes: Number(minutes.value) })));
     return el('div', {},
-      el('div', { class: 'row' }, el('label', { text: '채울 날' }, date), el('label', { text: '더할 시간(분)' }, minutes), submit),
+      el('div', { class: 'row' }, el('label', { text: '더 할 날' }, date), el('label', { text: '더할 시간(분)' }, minutes), submit),
       el('p', { class: 'muted', text: `한 날에 더할 수 있는 시간은 하루 공부 시간(${data.dailyMinutes}분)까지예요.` }));
   }
 
@@ -259,17 +260,22 @@ export function createCalendar({ api, run, today }) {
     const body = [facts];
     if (day.state === 'needs_review') {
       // Only the three answers first; the one that needs details opens its own fields (D024).
-      body.push(el('p', { class: 'ask-line', text: `${koreanDate(day.date)}은 기록이 없어요. 어땠어요?` }));
+      body.push(el('p', { class: 'ask-line', text: `${koreanDate(day.date)}은 기록이 없어요. 어땠어요?` }),
+        el('p', { class: 'muted', text: '기록이 없는 날을 「안 한 날」로 치지 않아요. 한 번 고르면 바꿀 수 없으니 날짜를 먼저 확인해 주세요.' }));
       const late = el('div', { class: 'answer-detail' }, taskForm(day));
       late.hidden = true;
+      const answer = (status, name) => () => {
+        if (!window.confirm(`${koreanDate(day.date)}을 「${name}」로 적을까요? 나중에 바꿀 수 없어요.`)) return;
+        run(() => post('/api/day-review', { date: day.date, status }));
+      };
       body.push(el('div', { class: 'answers' },
         answerButton('공부했는데 적는 걸 깜빡했어요', () => { late.hidden = false; late.querySelector('select, button')?.focus(); }),
-        answerButton('못 했어요', () => run(() => post('/api/day-review', { date: day.date, status: 'missed' }))),
-        answerButton('쉬는 날이었어요', () => run(() => post('/api/day-review', { date: day.date, status: 'rest' })))),
+        answerButton('못 했어요', answer('missed', '못 한 날')),
+        answerButton('쉬는 날이었어요', answer('rest', '쉰 날'))),
       late);
-      body.push(el('p', { class: 'muted', text: '기록이 없는 날을 「안 한 날」로 치지 않아요. 한 번 고르면 바꿀 수 없으니 날짜를 먼저 확인해 주세요.' }));
     } else if (day.state === 'missed') {
-      body.push(el('p', { text: '빠진 공부는 앞으로의 계획에 나눠 들어가요. 따로 더 할 날을 정하고 싶으면 골라 주세요.' }), makeupForm(day));
+      body.push(el('p', { text: '빠진 공부는 앞으로의 계획에 나눠 들어가요.' }),
+        el('details', { class: 'makeup-more' }, el('summary', { text: '원하면: 못 한 공부를 더 할 날 정하기' }), makeupForm(day)));
     } else if (day.state === 'late') {
       body.push(el('p', { text: '같은 날 다른 공부도 했다면 더 적을 수 있어요.' }), taskForm(day));
     } else if (day.state === 'today') {
@@ -285,7 +291,7 @@ export function createCalendar({ api, run, today }) {
     nodes.monthStats.replaceChildren(
       stat(`${summary.recordedDays}일`, '공부한 날'), stat(`${summary.restDays}일`, '쉰 날'),
       stat(`${summary.needsReviewDays}일`, '기록 없는 날'), stat(`${summary.missedDays}일`, '못 한 날'),
-      stat(`${summary.lateMinutes}분`, '나중에 적은 시간'), stat(`${summary.makeupMinutes}분`, '채울 시간'));
+      stat(`${summary.lateMinutes}분`, '나중에 적은 시간'), stat(`${summary.makeupMinutes}분`, '더 하기로 한 시간'));
     nodes.needsReview.replaceChildren(...(data.needsReview.length === 0
       ? [el('li', { class: 'muted', text: '어땠는지 알려 줄 날이 없어요.' })]
       : data.needsReview.map(date => {
@@ -303,13 +309,18 @@ export function createCalendar({ api, run, today }) {
   function renderPastAsk() {
     const node = document.querySelector('#pastAsk');
     if (!node) return;
-    const dates = month === today().slice(0, 7) ? data.needsReview : [];
+    const dates = month === today().slice(0, 7) ? [...data.needsReview, ...previousNeeds] : [];
     node.hidden = dates.length === 0;
     if (dates.length === 0) return;
     const named = dates.slice(0, 3).map(date => `${Number(date.slice(5, 7))}월 ${dayNumber(date)}일`).join(', ');
     const answer = el('button', { type: 'button', class: 'secondary', text: '어땠는지 알려 주기' });
-    answer.addEventListener('click', () => {
-      selected = dates[0];
+    answer.addEventListener('click', async () => {
+      const date = dates[0];
+      if (date.slice(0, 7) !== month) {
+        month = date.slice(0, 7);
+        await load();
+      }
+      selected = date;
       renderGrid();
       renderDay();
       openDialog(answer);
@@ -319,6 +330,9 @@ export function createCalendar({ api, run, today }) {
 
   async function load() {
     data = await api(`/api/calendar?month=${month}`);
+    // On this month's view, last month's unanswered days are asked about too (the first days of a month).
+    previousNeeds = month === today().slice(0, 7)
+      ? (await api(`/api/calendar?month=${shiftMonth(month, -1)}`)).needsReview : previousNeeds;
     render();
   }
 

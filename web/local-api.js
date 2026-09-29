@@ -215,7 +215,10 @@ export async function setup(form) {
     tasks,
     source: read?.source ?? null,
   };
-  await transact(['setup', 'events', 'archives'], 'readwrite', (values, put) => {
+  await transact(['setup', 'events', 'archives', 'draft'], 'readwrite', (values, put) => {
+    // A new plan without a new PDF keeps the textbook already added (it is the same book in most cases).
+    const kept = !read && values.setup?.source ? values.setup.source : null;
+    record.source = read?.source ?? kept;
     if (values.setup || (values.events?.length ?? 0) > 0) {
       const archives = values.archives ?? [];
       archives.push({ archivedAt: new Date().toISOString(), setup: values.setup ?? null, events: values.events ?? [] });
@@ -224,11 +227,20 @@ export async function setup(form) {
     }
     put('setup', record);
     put('events', []);
-    put('draft', read?.draft ?? undefined);
+    put('draft', read?.draft ?? (kept ? values.draft : undefined));
   });
   await requestPersistence();
   notify();
   return request('/api/status');
+}
+
+// The pages to read from an attach form: blank means the first 30; otherwise the same rules as the first setup.
+function pagesFrom(form) {
+  const start = String(form.get('pageStart') ?? '').trim();
+  const end = String(form.get('pageEnd') ?? '').trim();
+  if (!start && !end) return null;
+  const fields = { dailyMinutes: '1', tasks: '쪽 | 1 | 복습', pageStart: start, pageEnd: end };
+  return parseSetupFields(name => fields[name] ?? '').selectedPages;
 }
 
 // A textbook PDF added (or replaced) later: the plan and its records stay as they are.
@@ -237,7 +249,7 @@ export async function attachSource(form) {
   if (!file) throw new Error('PDF 파일을 골라 주세요.');
   const current = await transact(['setup'], 'readonly', values => values.setup ?? null);
   if (!current) throw new Error('먼저 무엇을 공부할지 정해 주세요.');
-  const read = await readSource(file, current.title, null);
+  const read = await readSource(file, current.title, pagesFrom(form));
   await transact(['setup'], 'readwrite', (values, put) => {
     if (!values.setup) throw new Error('먼저 무엇을 공부할지 정해 주세요.');
     put('setup', { ...values.setup, source: read.source });
@@ -266,10 +278,10 @@ export async function exportBackup() {
 
 export async function importBackup(text) {
   let backup;
-  try { backup = JSON.parse(text); } catch { throw new Error('백업 파일을 읽을 수 없습니다.'); }
+  try { backup = JSON.parse(text); } catch { throw new Error('보관 파일을 읽을 수 없어요.'); }
   if (backup?.kind !== BACKUP_KIND || backup.schemaVersion !== 1 || !Array.isArray(backup.events) ||
       !Array.isArray(backup.archives ?? [])) {
-    throw new Error('Challenge Master 백업 파일이 아닙니다.');
+    throw new Error('Challenge Master 보관 파일이 아니에요.');
   }
   try {
     replay(backup.events);
@@ -281,7 +293,7 @@ export async function importBackup(text) {
       throw new Error('study records malformed');
     }
   } catch (error) {
-    throw new Error('백업 파일의 기록이 손상되어 불러올 수 없습니다.', { cause: error });
+    throw new Error('보관 파일의 기록이 망가져서 불러올 수 없어요.', { cause: error });
   }
   await transact([], 'readwrite', (_, put) => {
     put('setup', backup.setup ?? undefined);

@@ -1,10 +1,11 @@
 # 작업 상태
 
-기준일: `2026-09-29`. 설계 v4.2 / **웹 버전 v0.9.0**(학습 기능 포함, `2026-09-29` 배포) / Windows·macOS 설치판 v0.7.0(예비). 현재 목표는 학생 2~3명 시범 사용이다([D016~D023](decisions.md), [PRD 6.1·6.2·9.3절](prd.md)).
+기준일: `2026-09-29`. 설계 v4.2 / **웹 버전 v0.9.0 배포 중, v0.10.0 쉬운 화면(D024) 가지 `easy`에서 검토 대기** / Windows·macOS 설치판 v0.7.0(예비). 현재 목표는 학생 2~3명 시범 사용이다([D016~D023](decisions.md), [PRD 6.1·6.2·9.3절](prd.md)).
 
 | 구분 | 현재 상태 | 근거/다음 확인 |
 |---|---|---|
 | 웹 버전 | `https://jinmin75.github.io/Challenge-Master/`; 기록·추출 글자는 학생 브라우저(IndexedDB)에만, PDF 원본 저장 안 함; 백업 저장·불러오기·지우기; 사이트 밖 요청 0 | [v0.8 검증](verification-v0.8.md); Chrome·WebKit 통과, 실제 Safari·Edge·휴대폰 NOT RUN |
+| 쉬운 화면 v0.10.0(검토 대기) | 탭 3개(오늘·문제 풀기·보관함), 구어체, 열면 오늘 계획, 문제 풀기 한 화면(교재 쪽 자동), 원인 4가지·다시 볼 날 단추, 가이드 A4 1쪽 | [v0.10 검증](verification-v0.10.md); Chrome·WebKit 3회 연속, 학생의 무설명 사용은 시범에서 관찰 |
 | 학습 기능 v0.9.0(배포) | 교재 보기, 학습실 4단(내 답 먼저 → 근거 → 원문 대조 → 수정·복습), 오답노트와 복습일 배정, 학습로그·마무리, 개인 Wiki 내보내기(모아 형식), 내 AI 복사-붙여넣기(동의·AI 추정 표시·후보 승인), 캘린더 요약·팝업 | [v0.9 검증](verification-v0.9.md); 배포 주소에서 Chrome·WebKit 2회 통과(사이트 밖 요청 0), 실제 AI 채팅 화면·Safari·휴대폰 NOT RUN |
 | Windows 설치파일(예비) | v0.7.0 NSIS 설치파일, 공유폴더에서 뺌; 앱 전용 Node.js와 pdf.js 포함, Python 없음; 서명 없음 | [v0.7 검증](verification-v0.7.md) |
 | macOS 앱(예비) | `Challenge Master.app` 압축파일; Apple Silicon·Intel 겸용; 서명·공증 없음 | GitHub macOS 환경(arm64·Intel)에서 빌드·자동 시험 통과; 실제 Mac 학생 사용은 NOT RUN |
@@ -20,7 +21,7 @@
 | 실제 학생 계정 연결 | NOT RUN | 시범 관찰 뒤 공식 지원 경로 한 조합 확인 |
 | 실제 교재·학생 사용성 | NOT RUN | 시범에서 관찰 |
 | 제품 전체 검증 | K01–K25 NOT RUN | 로컬 회귀와 설치본 시험을 제품 전체 검증으로 대체하지 않음 |
-| 코드 검사 | `npm test` 139/139, `npm run check` 56개 JS 모듈 통과 | 전체 린트·타입 검사 아님 |
+| 코드 검사 | `npm test` 142/142, `npm run check` 57개 JS 모듈 통과(가지 `easy`) | 전체 린트·타입 검사 아님 |
 
 ## 시범 전에 남은 일
 

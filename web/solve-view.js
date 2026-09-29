@@ -29,6 +29,11 @@ function dayAfter(days) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+// 「PDF 12쪽(책 10쪽)」: the PDF viewer's page number, and the printed one when the PDF has it.
+function pageName(page) {
+  return `PDF ${page.pdfPageIndex}쪽${page.printedPageLabel ? `(책 ${page.printedPageLabel}쪽)` : ''}`;
+}
+
 function dayName(iso) {
   const date = new Date(`${iso}T00:00:00`);
   return `${date.getMonth() + 1}월 ${date.getDate()}일(${'일월화수목금토'[date.getDay()]})`;
@@ -148,6 +153,7 @@ export function createSolveView({ api, onChange = async () => {} }) {
     return [
       textArea('question', '문제', { rows: 3 }),
       textArea('firstAnswer', '내 답', { rows: 6, hint: '교재를 보기 전에 아는 만큼 써 보세요. 틀려도 괜찮아요.' }),
+      el('p', { class: 'field-help', text: '다 썼으면 눌러 주세요. 누르면 문제와 내 답은 더 고칠 수 없어요(처음 쓴 답을 남겨 두려고요). 문제 낱말이 들어간 교재 쪽이 옆에 나와요.' }),
       guarded('교재랑 맞춰 보기', () => saveBlocker(draft()), async () => {
         capture();
         current = await api.startCompare(draft());
@@ -156,7 +162,6 @@ export function createSolveView({ api, onChange = async () => {} }) {
         if (!source) say('교재 없이 맞춰 봐요. 보관함에서 교재 PDF를 넣으면 다음부터 교재 쪽이 옆에 나와요.');
         else if (current.evidence.length === 0) say('문제 낱말이 들어간 교재 쪽을 찾지 못했어요. 아래 「다른 쪽 보기」에서 골라 보세요.');
       }),
-      el('p', { class: 'field-help', text: '누르면 내 답은 그대로 남고, 문제 낱말이 들어간 교재 쪽이 옆에 나와요.' }),
       // A saved problem not compared yet (e.g. from 「다시 풀기」) can still be removed.
       current.id ? el('p', { class: 'solve-foot' }, removeLink()) : null,
     ];
@@ -172,7 +177,7 @@ export function createSolveView({ api, onChange = async () => {} }) {
         el('p', { class: 'muted', text: source ? '맞는 교재 쪽을 아직 고르지 않았어요.' : '넣은 교재가 없어요. 아는 것과 찾아본 것으로 맞춰 봐요.' }))
       : el('div', { class: 'compare-book' },
         el('div', { class: 'page-tabs', role: 'tablist' }, ...evidence.map((ref, index) => {
-          const tab = el('button', { type: 'button', role: 'tab', 'aria-selected': String(index === shownPage), text: `교재 ${ref.pdfPageIndex}쪽` });
+          const tab = el('button', { type: 'button', role: 'tab', 'aria-selected': String(index === shownPage), text: pageName(ref) });
           tab.addEventListener('click', () => {
             capture();
             shownPage = index;
@@ -200,7 +205,8 @@ export function createSolveView({ api, onChange = async () => {} }) {
     const hits = pageQuery.trim() ? searchPages(source.pages, pageQuery) : source.pages
       .filter(page => page.state === 'draft').map(page => ({ pdfPageIndex: page.pdfPageIndex, count: 0 }));
     const list = el('ul', { class: 'page-picks' }, ...hits.filter(hit => !chosen.has(hit.pdfPageIndex)).slice(0, 12).map(hit => {
-      const add = el('button', { type: 'button', class: 'link-button', text: `${hit.pdfPageIndex}쪽 보기${hit.count ? ` (${hit.count}곳)` : ''}` });
+      const page = source.pages.find(item => item.pdfPageIndex === hit.pdfPageIndex);
+      const add = el('button', { type: 'button', class: 'link-button', text: `${pageName(page)} 펼치기${hit.count ? ` (${hit.count}곳)` : ''}` });
       add.addEventListener('click', () => act(add, async () => {
         capture();
         current = await api.addStudyEvidence(current.id, hit.pdfPageIndex);
@@ -230,7 +236,7 @@ export function createSolveView({ api, onChange = async () => {} }) {
     const presets = WHEN.map(item => ({ ...item, date: dayAfter(item.days) }));
     const isPreset = presets.some(item => item.date === current.reviewDate);
     const options = [...presets, { label: '날짜 고르기', date: null }, { label: '안 정할래요', date: '' }];
-    const input = el('input', { type: 'date', 'aria-label': '다시 볼 날짜', value: current.reviewDate, disabled: locked });
+    const input = el('input', { type: 'date', 'aria-label': '다시 볼 날짜', value: current.reviewDate, disabled: locked, min: dayAfter(1) });
     input.addEventListener('change', () => {
       current.reviewDate = input.value;
       dirty = true;
@@ -247,12 +253,13 @@ export function createSolveView({ api, onChange = async () => {} }) {
       }, { disabled: locked, label: '언제 다시 볼까요' }),
       showInput ? input : null,
       el('span', { class: 'field-help', text: locked ? review.dateBlocker
-        : current.reviewDate ? `${dayName(current.reviewDate)} 「오늘」 할 일에 들어가요. 하루 공부 시간은 늘지 않아요.`
+        : current.reviewDate ? `${dayName(current.reviewDate)}부터 「오늘」 할 일에 들어가요(그날 복습 시간이 차면 다음 날로). 하루 공부 시간은 늘지 않아요.`
           : '고르면 그날 「오늘」 할 일에 들어가요.' }));
   }
 
   function fixStep() {
     return [
+      el('div', { class: 'solve-question' }, el('span', { class: 'tag', text: '문제' }), el('pre', { class: 'page-text', text: current.question })),
       compareBox(),
       otherPages(),
       textArea('missing', '빠뜨렸거나 잘못 안 것', { rows: 3 }),
@@ -264,7 +271,9 @@ export function createSolveView({ api, onChange = async () => {} }) {
         current = await api.saveStudySession(draft());
         dirty = false;
         customDate = false;
-        justSaved = true;
+        // Saving while the AI or memo box is open keeps that box on screen (the request needs the saved text).
+        if (moreOpen) say('저장했어요.');
+        else justSaved = true;
       }),
       moreBox(),
       el('p', { class: 'solve-foot' }, retakeLink(), ' ', removeLink()),
@@ -363,8 +372,12 @@ export function createSolveView({ api, onChange = async () => {} }) {
   }
 
   function consentCard() {
-    const rights = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': '교재 원문도 보낼까요' },
-      ...[['confirmed', '함께 보낼게요'], ['unknown', '빼고 보낼게요']].map(([value, label]) => {
+    const who = ai.provider === '기타' ? '그 AI' : ai.provider;
+    const hasPages = current.evidence.length > 0;
+    if (!hasPages) ai.rights = 'unknown';
+    else if (!ai.rights) ai.rights = 'unknown';
+    const rights = !hasPages ? null : el('div', { class: 'chips', role: 'radiogroup', 'aria-label': '교재 글도 보낼까요' },
+      ...[['unknown', '교재 글은 빼고'], ['confirmed', '교재 글도 함께']].map(([value, label]) => {
         const chip = el('button', { type: 'button', class: 'chip', role: 'radio', 'aria-checked': String(ai.rights === value),
           'aria-pressed': String(ai.rights === value), 'data-rights': value, text: label });
         chip.addEventListener('click', () => {
@@ -374,25 +387,18 @@ export function createSolveView({ api, onChange = async () => {} }) {
             other.setAttribute('aria-pressed', String(on));
             other.setAttribute('aria-checked', String(on));
           }
-          refreshGuards();
         });
         return chip;
       }));
-    const agree = el('input', { type: 'checkbox', 'data-ai-field': 'agree' });
-    agree.checked = ai.agreed;
-    agree.addEventListener('change', () => {
-      ai.agreed = agree.checked;
-      refreshGuards();
-    });
     return el('div', { class: 'ai-consent' },
-      el('p', { text: `${ai.provider}에 붙여 넣을 내용: 문제, 내 답, 빠뜨렸거나 잘못 안 것.` }),
-      el('span', { class: 'field-title', text: '교재 원문도 같이 보낼까요? (이 AI에 넣어도 되는 자료일 때만)' }), rights,
-      el('label', { class: 'check' }, agree, ` 붙여 넣은 내용은 ${ai.provider}(으)로 가고, 여기서 되돌릴 수 없다는 걸 알아요.`),
-      guarded('좋아요, 요청문 만들기', () => (!ai.rights ? '교재 원문을 보낼지 먼저 골라 주세요.' : !ai.agreed ? '확인란을 먼저 눌러 주세요.' : null),
-        async () => {
-          await api.grantAiConsent({ sessionId: current.id, provider: ai.provider, purpose: 'review', sourceRights: ai.rights });
-          say('요청문을 만들었어요. 복사해서 AI에 붙여 넣으세요.');
-        }));
+      el('p', { text: `${who}에 붙여 넣을 내용: 문제, 내 답, 빠뜨렸거나 잘못 안 것.` }),
+      hasPages ? el('span', { class: 'field-help', text: '교재 글은 그 AI에 넣어도 되는 자료일 때만 함께 보내 주세요.' }) : null,
+      rights,
+      el('p', { class: 'field-help', text: '붙여 넣은 내용은 그 서비스로 가고, 여기서 되돌릴 수 없어요.' }),
+      guarded('알겠어요, 요청문 만들기', () => null, async () => {
+        await api.grantAiConsent({ sessionId: current.id, provider: ai.provider, purpose: 'review', sourceRights: ai.rights });
+        say('요청문을 만들었어요. 복사해서 AI에 붙여 넣으세요.');
+      }));
   }
 
   function requestParts() {
@@ -459,7 +465,7 @@ export function createSolveView({ api, onChange = async () => {} }) {
     });
     return el('div', { class: 'now-card saved-card' }, el('p', { class: 'eyebrow', text: '저장했어요' }),
       el('h2', { text: current.reviewDate ? `${dayName(current.reviewDate)}에 다시 볼게요` : '다시 볼 날은 정하지 않았어요' }),
-      el('p', { class: 'muted', text: current.reviewDate ? '「보관함」의 「다시 볼 문제」에 모여요.' : '「보관함」의 「푼 문제」에서 다시 열 수 있어요.' }),
+      el('p', { class: 'muted', text: current.reviewDate ? '그날부터 「오늘」 할 일에 들어가요. 「보관함 → 다시 볼 문제」에서 언제든 볼 수 있어요.' : '「보관함 → 푼 문제」에서 다시 열 수 있어요.' }),
       el('div', { class: 'actions' }, next, back));
   }
 
@@ -472,7 +478,9 @@ export function createSolveView({ api, onChange = async () => {} }) {
       render();
     });
     const head = el('div', { class: 'solve-head' },
-      el('h2', { text: current.id ? sessionTitle(current) : '새 문제' }), current.id ? newButton : null);
+      // After comparing, the whole question is shown below; the heading names the step instead of repeating it.
+      el('h2', { text: !current.id ? '새 문제' : current.locked && !justSaved ? '고쳐 쓰기' : sessionTitle(current) }),
+      current.id ? newButton : null);
     const body = justSaved ? [savedCard()] : current.locked ? fixStep() : writeStep();
     const note = message ? el('p', { class: `step-note ${message.kind === 'error' ? 'error' : ''}`,
       role: message.kind === 'error' ? 'alert' : 'status', 'data-note': 'solve', text: message.text }) : null;

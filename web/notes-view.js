@@ -30,7 +30,7 @@ function reviewLine(item) {
   if (cycle.inCurrentPlan) return `오늘 다시 볼 차례${overdue} · 「오늘」 할 일에 있어요(${cycle.credited}/${cycle.minutes}분)`;
   if (cycle.deferredNow) return `다시 볼 차례${overdue} · 오늘은 복습 시간이 다 차서 뒤로 넘어갔어요`;
   if (cycle.planned) return `다시 볼 차례${overdue} · 지난 할 일에 있었어요(${cycle.credited}/${cycle.minutes}분)`;
-  return `다시 볼 차례${overdue} · 다음 계획 때 할 일에 들어가요. 지금 봤다면 「다시 봤어요」를 눌러 주세요.`;
+  return `다시 볼 차례${overdue} · 내일 「오늘」 할 일에 들어가요. 오늘 이미 봤다면 「다시 봤어요」를 눌러 주세요.`;
 }
 
 export function createNotesView({ api, openInStudy, afterChange }) {
@@ -70,8 +70,8 @@ export function createNotesView({ api, openInStudy, afterChange }) {
     const dateLocked = cycle && cycle.planned && !cycle.done;
     const date = el('input', { type: 'date', 'aria-label': '다음에 볼 날', value: cycle?.done ? '' : session.reviewDate,
       disabled: dateLocked });
-    const saveDate = el('button', { type: 'button', class: 'secondary', 'data-action': '날짜 바꾸기', disabled: dateLocked,
-      text: '날짜 바꾸기' });
+    const saveDate = el('button', { type: 'button', class: 'secondary', 'data-action': '다시 볼 날 정하기', disabled: dateLocked,
+      text: '다시 볼 날 정하기' });
     saveDate.addEventListener('click', () => act(id, saveDate, async () => {
       if (!date.value) throw new Error('날짜를 먼저 골라 주세요.');
       await api.saveStudySession({ id, reviewDate: date.value });
@@ -89,7 +89,7 @@ export function createNotesView({ api, openInStudy, afterChange }) {
         open),
       el('div', { class: 'note-date' },
         el('label', {}, '다음에 볼 날', date), saveDate,
-        dateLocked ? el('span', { class: 'blocked-reason', 'data-reason': '날짜 바꾸기',
+        dateLocked ? el('span', { class: 'blocked-reason', 'data-reason': '다시 볼 날 정하기',
           text: '다시 본 뒤에 날짜를 바꿀 수 있어요.' }) : null),
       message ? el('p', { class: `step-note ${message.kind}`, role: message.kind === 'error' ? 'alert' : 'status', text: message.text }) : null);
   }

@@ -109,8 +109,9 @@ export async function calendarFlow(page, { calendarOf }) {
   await page.getByRole('button', { name: '못 했어요' }).click();
   await waitState(offset(-2), 'missed');
   await openDay(offset(-2));
+  await page.locator('#dayBody .makeup-more summary').click();
   await page.locator('#dayBody input[type=number]').fill('20');
-  await page.getByRole('button', { name: '채울 날 정하기' }).click();
+  await page.getByRole('button', { name: '이날 더 하기' }).click();
   await page.waitForFunction(day => document.querySelector(`#calendarGrid .day[data-date="${day}"]`)?.textContent
     .includes('20분 채움'), offset(-2));
   assert.equal((await dayOf(offset(-2))).makeupScheduledFor, 20);
@@ -118,8 +119,9 @@ export async function calendarFlow(page, { calendarOf }) {
 
   // Over the one-day cap: the error shows inside the dialog (the page behind is covered) and nothing more is saved.
   await openDay(offset(-2));
+  await page.locator('#dayBody .makeup-more summary').click();
   await page.locator('#dayBody input[type=number]').fill('50');
-  await page.getByRole('button', { name: '채울 날 정하기' }).click();
+  await page.getByRole('button', { name: '이날 더 하기' }).click();
   await page.locator('#calendarError:not([hidden])').waitFor();
   assert.match(await page.locator('#calendarError').textContent(), /하루 공부 시간\(60분\)까지/);
   assert.equal((await dayOf(offset(1))).makeupMinutes, 20);

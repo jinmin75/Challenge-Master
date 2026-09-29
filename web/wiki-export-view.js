@@ -23,7 +23,7 @@ export async function checkWikiRoot(root) {
       return null;
     } catch { /* not there */ }
   }
-  return `고른 폴더(${root.name})에 wiki나 raw 폴더가 없어요. 노트 폴더의 맨 위 폴더를 골라 주세요.`;
+  return `고른 폴더(${root.name})에 wiki나 raw 폴더가 없어요. 수업 노트 폴더(안에 wiki 폴더가 있는 것)를 골라 주세요.`;
 }
 
 export async function writeFilesToDirectory(root, files) {
@@ -84,13 +84,13 @@ export function createWikiExportView({ api }) {
     const logCount = entries.reduce((sum, entry) => sum + entry.wikiPaths.length - 1, 0);
     summaryNode.textContent = entries.length === 0
       ? '보낼 문제가 없어요. 「문제 풀기」에서 「교재랑 맞춰 보기」까지 한 문제부터 보낼 수 있어요.'
-      : `보낼 문제 ${entries.length}개(새로 ${counts.new} · 바뀜 ${counts.changed} · 그대로 ${counts.same}) · 메모 ${logCount}개 · 파일 ${files.length}개${lastExport ? ` · 마지막으로 보낸 날 ${lastExport.at.slice(0, 10)}` : ''}`;
+      : `보낼 문제 ${entries.length}개(처음 보내는 것 ${counts.new} · 바뀐 것 ${counts.changed} · 그대로 ${counts.same}) · 메모 ${logCount}개${lastExport ? ` · 마지막으로 보낸 날 ${lastExport.at.slice(0, 10)}` : ''}`;
     checkNode.replaceChildren(...(entries.length === 0 ? [] : problems.length === 0
-      ? [el('span', { class: 'check-ok', text: '형식 확인: 이상 없어요.' })]
-      : [el('span', { class: 'blocked-reason', text: '형식에 문제가 있어 보낼 수 없어요:' }),
+      ? [el('span', { class: 'check-ok', text: '파일 모양: 이상 없어요.' })]
+      : [el('span', { class: 'blocked-reason', text: '파일 모양에 문제가 있어 보낼 수 없어요:' }),
         el('ul', {}, ...problems.map(problem => el('li', { text: problem })))]));
     const blocker = entries.length === 0 ? '보낼 문제가 없어요.'
-      : problems.length > 0 ? '형식 문제를 먼저 고쳐야 해요.' : null;
+      : problems.length > 0 ? '파일 모양 문제를 먼저 고쳐야 해요.' : null;
     actionsNode.replaceChildren(
       guarded('내 노트 폴더에 바로 넣기', blocker ?? (folderSupported ? null
         : '이 브라우저에서는 폴더에 바로 넣을 수 없어요(Chrome·Edge에서 돼요). 묶음 파일을 받아 주세요.'), async () => {
@@ -104,7 +104,7 @@ export function createWikiExportView({ api }) {
       guarded('묶음 파일(zip) 받기', blocker, async () => {
         download(`challenge-master-wiki-${new Date().toISOString().slice(0, 10)}.zip`, createZip(files));
         await api.markWikiExported(entries, 'zip');
-        return { kind: 'zip', text: '묶음 파일을 받았어요. 노트 폴더의 맨 위(wiki와 raw 폴더가 있는 곳)에 압축을 풀면 아래 자리에 들어가요.',
+        return { kind: 'zip', text: '묶음 파일을 받았어요. 수업 노트 폴더(wiki 폴더가 있는 곳)에 압축을 풀면 아래 자리에 들어가요.',
           paths: files.map(file => file.path) };
       }, 'secondary'));
     filesNode.replaceChildren(...(files.length === 0 ? [] : [el('details', {},

@@ -100,7 +100,7 @@ test('evidence is limited, unique, and review dates must be dates', () => {
   assert.throws(() => saveSession(null, { ...input, evidence: [input.evidence[0], input.evidence[0]] }, { id: 's', now }),
     /두 번/);
   assert.throws(() => saveSession(null, { ...input, reviewDate: '다음 주' }, { id: 's', now }), /날짜로/);
-  assert.throws(() => saveSession(null, { ...input, question: 'q'.repeat(20001) }, { id: 's', now }), /문제이\(가\) 너무 깁니다/);
+  assert.throws(() => saveSession(null, { ...input, question: 'q'.repeat(20001) }, { id: 's', now }), /문제이\(가\) 너무 길어요/);
 });
 
 test('다시 풀기 starts an unlocked session on the same question and pages with empty answers', () => {

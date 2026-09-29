@@ -2076,3 +2076,25 @@ details.more > summary {
 #view-source #sourceMeta {
   display: none;
 }
+
+.solve-question {
+  display: grid;
+  gap: 6px;
+}
+
+.attach-form {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.attach-form button {
+  justify-self: start;
+}
+
+.makeup-more summary {
+  cursor: pointer;
+  min-height: 36px;
+  color: #25665a;
+  font-weight: 700;
+}

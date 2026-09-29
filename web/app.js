@@ -129,7 +129,7 @@ function taskRow({ title = '', minutes = '', kind = 'new' } = {}) {
   li.className = 'task-row';
   li.innerHTML = `
     <input class="task-title" type="text" maxlength="120" aria-label="공부할 것" placeholder="예: 4장 교육평가 유형">
-    <label class="task-minutes">시간<input type="number" min="1" step="1" aria-label="걸릴 시간(분)" placeholder="60">분</label>
+    <label class="task-minutes">다 하는 데<input type="number" min="1" step="1" aria-label="다 하는 데 걸릴 시간(분)" placeholder="60">분</label>
     <select class="task-kind" aria-label="새로 공부 또는 복습"><option value="new">새로 공부</option><option value="review">복습</option></select>
     <button type="button" class="link-button task-remove">빼기</button>`;
   li.querySelector('.task-title').value = title;
@@ -228,7 +228,7 @@ function render(status) {
     elements.nowTitle.textContent = '오늘 할 것을 다 했어요.';
   } else if (plan) {
     elements.nowLabel.textContent = '오늘';
-    elements.nowTitle.textContent = '오늘 할 것이 없어요. 「보관함 → 공부할 것 바꾸기」에서 새로 정할 수 있어요.';
+    elements.nowTitle.textContent = '오늘 할 것이 없어요. 「보관함 → 더 보기 → 공부할 것 바꾸기」에서 새로 정할 수 있어요.';
   } else {
     elements.nowLabel.textContent = '오늘';
     elements.nowTitle.textContent = '오늘 할 것을 만들고 있어요.';
@@ -257,8 +257,9 @@ function render(status) {
       skip.textContent = '건너뛰기';
       skip.setAttribute('aria-label', `${item.title} 건너뛰기`);
       skip.addEventListener('click', async () => {
+        if (!window.confirm(`「${item.title}」을(를) 오늘은 건너뛸까요? 되돌릴 수 없어요. 남은 분량은 다음 날들에 나눠 들어가요.`)) return;
         if (await run(() => api('/api/skip', { taskId: item.taskId }))) {
-          elements.todayMessage.textContent = `「${item.title}」은 건너뛰었어요. 뒤 계획으로 넘어가요.`;
+          elements.todayMessage.textContent = `「${item.title}」은(는) 건너뛰었어요. 남은 분량은 다음 날들에 나눠 들어가요.`;
         }
       });
       li.append(pick, skip);
@@ -445,7 +446,10 @@ elements.dailyChips.addEventListener('click', event => {
   if (!chip.dataset.minutes) elements.dailyMinutesInput.focus();
 });
 elements.addTaskRow.addEventListener('click', () => {
-  if (elements.taskRows.children.length >= 30) return;
+  if (elements.taskRows.children.length >= 30) {
+    showError(new Error('공부할 것은 30개까지 적을 수 있어요.'));
+    return;
+  }
   const row = taskRow();
   elements.taskRows.append(row);
   row.querySelector('.task-title').focus();
@@ -463,7 +467,7 @@ elements.setupForm.addEventListener('submit', async (event) => {
     showError(error);
     return;
   }
-  if (editingSetup && !window.confirm('계획을 처음부터 다시 만들어요. 지금까지의 공부 시간 기록은 이 브라우저 안에 따로 보관돼요. 계속할까요?')) return;
+  if (editingSetup && !window.confirm('계획을 처음부터 다시 만들어요. 지금까지의 달력 기록은 화면에서 사라져요(보관 파일에는 남아요). 푼 문제와 교재는 그대로예요. 계속할까요?')) return;
   // Collect the fields before run() disables every control: FormData skips disabled fields,
   // so building it inside run() sent an empty upload from real browsers.
   const body = new FormData(elements.setupForm);

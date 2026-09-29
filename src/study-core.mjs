@@ -69,12 +69,12 @@ export const EVIDENCE_TEXT_LIMIT = 20000;
 
 function text(value, field) {
   const result = String(value ?? '');
-  if (result.length > LIMITS[field]) throw new Error(`${FIELD_NAMES[field]}이(가) 너무 깁니다(${LIMITS[field].toLocaleString('ko-KR')}자까지).`);
+  if (result.length > LIMITS[field]) throw new Error(`${FIELD_NAMES[field]}이(가) 너무 길어요(${LIMITS[field].toLocaleString('ko-KR')}자까지).`);
   return result;
 }
 
-const FIELD_NAMES = { subject: '과목', goal: '공부 목표', studiedSection: '학습 위치', question: '문제', firstAnswer: '첫 답안',
-  missing: '빠진 것', mistaken: '잘못 알고 있던 것', unverified: '아직 확인하지 못한 것', revision: '수정 답안', reflection: '복습 메모',
+const FIELD_NAMES = { subject: '과목', goal: '공부 목표', studiedSection: '학습 위치', question: '문제', firstAnswer: '내 답',
+  missing: '빠뜨렸거나 잘못 안 것', mistaken: '잘못 알고 있던 것', unverified: '아직 확인하지 못한 것', revision: '고쳐 쓴 답', reflection: '복습 메모',
   nextAction: '다음 연습' };
 
 export function sessionTitle(session) {
@@ -131,7 +131,7 @@ export function saveSession(previous, input, { id, now }) {
   const locked = previous?.locked === true;
   const evidence = locked ? previous.evidence : normalizeEvidenceRefs(input.evidence ?? previous?.evidence ?? []);
   const reviewDate = String(input.reviewDate ?? previous?.reviewDate ?? '');
-  if (reviewDate && !isDate(reviewDate)) throw new Error('복습일은 날짜로 골라 주세요.');
+  if (reviewDate && !isDate(reviewDate)) throw new Error('다시 볼 날은 날짜로 골라 주세요.');
   const field = name => text(input[name] ?? previous?.[name] ?? '', name);
   return {
     id: previous?.id ?? id,
@@ -338,14 +338,14 @@ export function reviewTasks({ sessions, state, today }) {
   const tasks = new Map();
   for (const item of planItems(state)) {
     if (!item.taskId.startsWith(NOTE_TASK_PREFIX) || tasks.has(item.taskId)) continue;
-    tasks.set(item.taskId, { id: item.taskId, title: item.title ?? '오답 복습', kind: 'review',
+    tasks.set(item.taskId, { id: item.taskId, title: item.title ?? '다시 볼 문제', kind: 'review',
       minutes: originalTaskMinutes(state, item.taskId), splittable: true, dueDate: item.taskId.slice(-10) });
   }
   for (const session of sessions ?? []) {
     if (!isNote(session)) continue;
     const cycle = reviewCycle(session, state, today);
     if (!cycle || !cycle.due || cycle.done || tasks.has(cycle.taskId)) continue;
-    tasks.set(cycle.taskId, { id: cycle.taskId, title: `오답 복습: ${sessionTitle(session)}`.slice(0, 120), kind: 'review',
+    tasks.set(cycle.taskId, { id: cycle.taskId, title: `다시 볼 문제: ${sessionTitle(session)}`.slice(0, 120), kind: 'review',
       minutes: cycle.minutes, splittable: true, dueDate: cycle.date });
   }
   return [...tasks.values()];
@@ -387,7 +387,7 @@ export function completeBlocker(cycle) {
     return '오늘은 복습 시간이 다 차서 이 문제가 할 일에 못 들어갔어요. 들어간 날 눌러 주세요.';
   }
   if (cycle.planned && !cycle.inCurrentPlan) {
-    return '지난 할 일에 들어 있던 문제예요. 할 일에 다시 들어간 날 눌러 주세요.';
+    return '오늘 할 일에는 없어요. 「오늘」 할 일에 다시 들어온 날 눌러 주세요.';
   }
   return null;
 }

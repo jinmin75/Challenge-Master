@@ -36,6 +36,8 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1100, height: 1000 } });
   const { consoleErrors, failedRequests } = watchPage(page);
+  // 「못 했어요」·「쉬는 날이었어요」 ask to confirm (they cannot be changed later).
+  page.on('dialog', dialog => dialog.accept());
   await page.goto(base, { waitUntil: 'networkidle' });
   await calendarFlow(page, { calendarOf });
   if (shot) await page.screenshot({ path: shot, fullPage: true });

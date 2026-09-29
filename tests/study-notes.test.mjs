@@ -82,7 +82,7 @@ test('a review that never entered a plan can be marked done directly; a planned 
       tasks: [...base, ...reviewTasks({ sessions: [session], state, today: '2026-10-02' })] }, state) });
   const cycle = reviewCycle(session, state, '2026-10-02');
   assert.equal(cycle.inCurrentPlan, false);
-  assert.match(completeBlocker(cycle), /할 일에 다시 들어간 날/);
+  assert.match(completeBlocker(cycle), /할 일에 다시 들어온 날/);
   assert.match(completeBlocker(reviewCycle({ ...session, reviewDate: '2026-10-09' }, state, '2026-10-02')), /10월 9일에/);
   assert.match(completeBlocker(null), /다시 볼 날을 먼저/);
 });

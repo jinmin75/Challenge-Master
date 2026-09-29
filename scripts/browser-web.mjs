@@ -255,8 +255,9 @@ async function checkEngine(name, playwright) {
     // No page matched the question's words in this tiny PDF: the learner picks one under 「다른 쪽 보기」.
     await waitText(page, '[data-note="solve"]', '교재 쪽을 찾지 못했어요');
     assert.match(await text(page, '.compare-mine'), /수업 중에 하는 평가/);
-    await page.locator('.other-pages button', { hasText: '1쪽 보기' }).click();
-    await waitText(page, '.compare-book', '교재 1쪽');
+    await page.locator('.other-pages button', { hasText: 'PDF 1쪽 펼치기' }).click();
+    await waitText(page, '.compare-book', 'PDF 1쪽');
+    assert.match(await text(page, '.solve-question'), /형성평가를 설명하시오\./, 'the whole question stays visible');
     assert.match(await text(page, '.compare-book .page-text'), /한/);
     await page.fill('[data-field="missing"]', '학습 개선에 쓴다는 목적');
     await page.fill('[data-field="revision"]', '형성평가는 수업 중 학습을 개선하려고 하는 평가다.');
@@ -280,11 +281,10 @@ async function checkEngine(name, playwright) {
     await waitText(page, '.memo-list', '형성평가: 수업 중 학습 개선');
     await page.selectOption('.ai-box select', 'Claude');
     await waitText(page, '.ai-consent', 'Claude에 붙여 넣을 내용');
-    assert.match(await reason('좋아요, 요청문 만들기'), /교재 원문을 보낼지 먼저 골라 주세요/);
-    await page.locator('.ai-consent .chip', { hasText: '함께 보낼게요' }).click();
-    assert.match(await reason('좋아요, 요청문 만들기'), /확인란을 먼저/);
-    await page.check('[data-ai-field="agree"]');
-    await action('좋아요, 요청문 만들기').click();
+    // One decision: the textbook text is left out unless the learner picks it (asked only when pages are attached).
+    assert.equal(await page.locator('.ai-consent .chip[aria-pressed="true"]').textContent(), '교재 글은 빼고');
+    await page.locator('.ai-consent .chip', { hasText: '교재 글도 함께' }).click();
+    await action('알겠어요, 요청문 만들기').click();
     await waitText(page, '[data-note="solve"]', '요청문을 만들었어요');
     const request = await page.inputValue('[data-form-field="ai-request"]');
     assert.match(request, /\[학습로그 후보\]/);
@@ -314,9 +314,11 @@ async function checkEngine(name, playwright) {
 
     // 보관함: 다시 볼 문제 (not due yet: the button says when), 푼 문제 opens in 문제 풀기.
     await openKeep(page);
+    // The list shows every problem first (what the saved card promised); 「지금 볼 것」 narrows it.
+    await waitText(page, '#notesList', '헷갈렸어요');
+    await page.selectOption('#notesScope', 'due');
     await waitText(page, '#notesList', '지금 볼 문제가 없어요');
     await page.selectOption('#notesScope', 'all');
-    await waitText(page, '#notesList', '헷갈렸어요');
     assert.equal(await page.locator('[data-action="다시 봤어요"]').isDisabled(), true);
     assert.match(await text(page, '[data-reason="다시 봤어요"]'), new RegExp(`${koreanDay(offset(3))}에 다시 볼 차례가 돼요`));
     await waitText(page, '#solvedList', '고쳐 씀 · 헷갈렸어요');
@@ -327,14 +329,14 @@ async function checkEngine(name, playwright) {
     await openKeep(page);
     await page.selectOption('#notesScope', 'all');
     await page.fill('.note-date input[type=date]', offset(0));
-    await page.locator('[data-action="날짜 바꾸기"]').click();
+    await page.locator('[data-action="다시 볼 날 정하기"]').click();
     await waitText(page, '#notesList', `${koreanDay(offset(0))}(`);
     await callApi(page, '/api/start', { date: offset(0) });
     await page.click('#appTabs a[href="#today"]');
     await waitText(page, '#allocations', '다시 볼 문제');
     await openKeep(page);
     await waitText(page, '#notesList', '「오늘」 할 일에 있어요');
-    assert.equal(await page.locator('[data-action="날짜 바꾸기"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-action="다시 볼 날 정하기"]').isDisabled(), true);
     await page.locator('[data-action="다시 봤어요"]').click();
     await waitText(page, '#notesList', '다시 봤다고 적었어요');
     if (shots) await page.locator('#view-keep').screenshot({ path: join(shots, `${name}-keep.png`) });
@@ -357,13 +359,17 @@ async function checkEngine(name, playwright) {
     // 내 교재: what was read, and another PDF can replace it without touching the plan.
     await waitText(page, '#bookStatus', '한글-시험.pdf · 2쪽을 읽었어요');
     await page.locator('#attachInput').setInputFiles({ name: '다른-교재.pdf', mimeType: 'application/pdf', buffer: tinyPdf({ korean: true }) });
+    // The pages to read can be chosen here too (「교재랑 맞춰 보기」 only looks in the pages read).
+    await page.fill('#attachStart', '2');
+    await page.fill('#attachEnd', '2');
     await page.locator('#attachButton').click();
     await waitText(page, '#bookStatus', '다른-교재.pdf');
+    assert.deepEqual((await callApi(page, '/api/status')).setup.source.selectedPages, [2]);
     assert.equal((await callApi(page, '/api/status')).confirmedProgressMinutes, recorded + 10, 'the plan records stay');
 
     // 내 노트로 보내기: Moa-layout zip (and the folder writer where the browser offers it).
-    await waitText(page, '#wikiSummary', '보낼 문제 1개(새로 1');
-    await waitText(page, '#wikiCheck', '형식 확인: 이상 없어요');
+    await waitText(page, '#wikiSummary', '보낼 문제 1개(처음 보내는 것 1');
+    await waitText(page, '#wikiCheck', '파일 모양: 이상 없어요');
     const [zipDownload] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="묶음 파일(zip) 받기"]')]);
     const names = zipNames(readFileSync(await zipDownload.path()));
     assert.ok(names.some(entry => /^wiki\/자료원본\/.+-[0-9a-f]{8}-[0-9a-f]{8}\.md$/.test(entry)), names.join('\n'));
@@ -412,6 +418,16 @@ async function checkEngine(name, playwright) {
     }, recorded + 11);
     await second.close();
 
+    // A new plan without a new PDF keeps the textbook already added.
+    await openKeep(page);
+    await page.locator('#keepMore').evaluate(node => { node.open = true; });
+    await page.click('#setupAgain');
+    await page.locator('.task-title').nth(0).fill('2장 교육과정');
+    await page.click('#setupSubmit');
+    await page.locator('#todayMain:not([hidden]) #allocations .task-pick').first().waitFor();
+    assert.match(await text(page, '#nowTitle'), /^2장 교육과정 · /);
+    assert.equal((await callApi(page, '/api/status')).setup.source.originalName, '다른-교재.pdf');
+
     // Clearing, a wrong file, and restoring the saved file.
     await openKeep(page);
     await page.locator('#keepMore').evaluate(node => { node.open = true; });
@@ -419,7 +435,7 @@ async function checkEngine(name, playwright) {
     await page.locator('#firstRun:not([hidden])').waitFor();
     await openKeep(page);
     await page.locator('#restoreInput').setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{}') });
-    await waitText(page, '#errorMessage', 'Challenge Master 백업 파일이 아닙니다.');
+    await waitText(page, '#errorMessage', 'Challenge Master 보관 파일이 아니에요.');
     await page.locator('#restoreInput').setInputFiles(backupPath);
     await waitText(page, '#solvedList', '형성평가를 설명하시오');
     await page.click('#appTabs a[href="#today"]');
