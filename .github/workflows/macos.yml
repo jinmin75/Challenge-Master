@@ -25,6 +25,12 @@ jobs:
       - run: npm ci --omit=optional
       - run: npm test
       - run: npm run check
+      - name: Korean names survive the OS unzip tool (Wiki export zip)
+        if: runner.os == 'macOS'
+        run: |
+          node scripts/zip-check.mjs write "$RUNNER_TEMP/check.zip"
+          ditto -x -k "$RUNNER_TEMP/check.zip" "$RUNNER_TEMP/unzipped"
+          node scripts/zip-check.mjs verify "$RUNNER_TEMP/unzipped"
       # L25: the calendar in real Chrome (preinstalled on hosted runners). playwright-core stays out of
       # package.json so the app package never carries it.
       - name: Browser calendar check

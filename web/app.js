@@ -6,6 +6,7 @@ const localApi = browserMode ? await import('./local-api.js') : null;
 const sourceModule = browserMode ? await import('./source-view.js') : null;
 const studyModule = browserMode ? await import('./study-view.js') : null;
 const notesModule = browserMode ? await import('./notes-view.js') : null;
+const wikiModule = browserMode ? await import('./wiki-export-view.js') : null;
 const BACKUP_REMINDER_DAYS = 7;
 
 const elements = {
@@ -129,6 +130,7 @@ function render(status) {
     if (currentView() === 'source') sourceView.update().catch(showError);
     if (currentView() === 'study') studyView.update().catch(showError);
     if (currentView() === 'notes') notesView.update().catch(showError);
+    if (currentView() === 'data') wikiView.update().catch(showError);
     updateNotesTab().catch(showError);
   }
 
@@ -288,7 +290,8 @@ function download(fileName, text) {
 // Web version screens (D023): tabs switch views by the address hash, so back/forward and bookmarks work.
 const VIEWS = ['plan', 'source', 'study', 'notes', 'data'];
 const viewNodes = { plan: document.querySelector('#view-plan'), source: document.querySelector('#view-source'),
-  study: document.querySelector('#view-study'), notes: document.querySelector('#view-notes'), data: elements.dataPanel };
+  study: document.querySelector('#view-study'), notes: document.querySelector('#view-notes'),
+  data: document.querySelector('#view-data') };
 const sourceView = sourceModule ? sourceModule.createSourceView({ load: () => localApi.sourceView() }) : null;
 const studyView = studyModule ? studyModule.createStudyView({ api: localApi, onChange: () => updateNotesTab() }) : null;
 const notesView = notesModule ? notesModule.createNotesView({
@@ -300,6 +303,8 @@ const notesView = notesModule ? notesModule.createNotesView({
   // A recorded review changes today's plan numbers; redraw the plan tab too.
   afterChange: () => refresh(),
 }) : null;
+
+const wikiView = wikiModule ? wikiModule.createWikiExportView({ api: localApi }) : null;
 
 // The tab shows how many 오답 reviews are due now.
 async function updateNotesTab() {
@@ -323,6 +328,7 @@ function showView() {
   if (name === 'source') sourceView.update().catch(showError);
   if (name === 'study') studyView.update().catch(showError);
   if (name === 'notes') notesView.update({ fresh: true }).catch(showError);
+  if (name === 'data') wikiView.update().catch(showError);
 }
 
 if (localApi) {

@@ -72,6 +72,19 @@ function watchOrigin(page) {
     }
   });
 }
+// Names in a zip's central directory (the export is a stored zip written by src/zip-core.mjs).
+function zipNames(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const end = bytes.length - 22;
+  let at = view.getUint32(end + 16, true);
+  const names = [];
+  for (let i = 0; i < view.getUint16(end + 10, true); i += 1) {
+    const length = view.getUint16(at + 28, true);
+    names.push(new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + length)));
+    at += 46 + length;
+  }
+  return names;
+}
 const text = (page, selector) => page.locator(selector).textContent();
 const waitText = (page, selector, expected) => page.waitForFunction(([s, e]) =>
   document.querySelector(s)?.textContent.includes(e), [selector, expected]);
@@ -333,12 +346,59 @@ async function checkEngine(name, playwright) {
     await page.waitForFunction(() => document.querySelector('#notesTab').textContent === '오답노트');
     if (shots) await page.locator('#view-notes').screenshot({ path: join(shots, `${name}-notes.png`) });
 
+    // A-5 개인 Wiki로 내보내기: format check, Moa-layout zip, counts after export, and the folder writer.
+    await page.click('#appTabs a[href="#data"]');
+    await waitText(page, '#wikiSummary', '내보낼 기록 1개(새로 1');
+    await waitText(page, '#wikiCheck', '형식 검사 통과');
+    const [zipDownload] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="묶음 파일(zip) 받기"]')]);
+    const names = zipNames(readFileSync(await zipDownload.path()));
+    assert.ok(names.some(entry => /^wiki\/자료원본\/교육학 · 평가 유형-[0-9a-f]{8}-[0-9a-f]{8}\.md$/.test(entry)), names.join('\n'));
+    assert.ok(names.some(entry => entry.startsWith('wiki/학습로그/') && !entry.includes('_챌린지')));
+    assert.ok(names.some(entry => /^raw\/challenge-master\/[0-9a-f-]{36}\/[0-9a-f]{64}\/ingest\.md$/.test(entry)));
+    await waitText(page, '[data-note="wiki"]', '묶음 파일을 받았습니다');
+    await waitText(page, '#wikiSummary', '그대로 1');
+    const pickerSupported = await page.evaluate(() => typeof window.showDirectoryPicker === 'function');
+    if (!pickerSupported) {
+      assert.match(await text(page, '[data-reason="내 Wiki 폴더에 바로 쓰기"]'), /Chrome·Edge에서 가능/);
+    }
+    // The picker itself is a browser dialog; the writer is checked on the browser's private folder (same handle API).
+    // Only where the feature is offered (Chrome·Edge); Safari/WebKit shows the reason checked above instead.
+    const folder = !pickerSupported ? { skipped: true } : await page.evaluate(async () => {
+      const view = await import(new URL('wiki-export-view.js', location.href).href);
+      const api = await import(new URL('local-api.js', location.href).href);
+      const root = await navigator.storage.getDirectory();
+      const refused = await view.checkWikiRoot(root);
+      await root.getDirectoryHandle('wiki', { create: true });
+      const accepted = await view.checkWikiRoot(root);
+      const probe = await root.getFileHandle('probe.txt', { create: true });
+      if (typeof probe.createWritable !== 'function') return { refused, accepted, writable: false };
+      const { files } = await api.wikiExportPreview();
+      const written = await view.writeFilesToDirectory(root, files);
+      const notePath = written.find(path => path.startsWith('wiki/자료원본/') && !path.includes('_챌린지'));
+      let dir = root;
+      const parts = notePath.split('/');
+      for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part);
+      const content = await (await (await dir.getFileHandle(parts.at(-1))).getFile()).text();
+      return { refused, accepted, writable: true, count: written.length, total: files.length, head: content.slice(0, 50) };
+    });
+    if (!folder.skipped) {
+      assert.match(folder.refused, /wiki나 raw 폴더가 없습니다/);
+      assert.equal(folder.accepted, null);
+    }
+    const folderWriterChecked = folder.skipped ? 'not offered (no folder picker)' : folder.writable ? 'written and read back' : 'no writable files';
+    if (folder.writable) {
+      assert.equal(folder.count, folder.total);
+      assert.match(folder.head, /^---\nkind: "challenge-master-source-note"/);
+    }
+    if (shots) await page.locator('#wikiPanel').screenshot({ path: join(shots, `${name}-wiki.png`) });
+
     await page.setViewportSize({ width: 390, height: 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll on a phone');
     assert.deepEqual([watch.consoleErrors, watch.failedRequests, watchSecond.consoleErrors], [[], [], []]);
     assert.deepEqual(externalRequests, [], 'requests left the site');
     await context.close();
-    return { engine: name, version: browser.version(), passed: true, externalRequests: externalRequests.length };
+    return { engine: name, version: browser.version(), passed: true, externalRequests: externalRequests.length,
+      folderWriter: folderWriterChecked };
   } finally {
     await browser.close();
   }

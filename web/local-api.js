@@ -8,6 +8,7 @@ import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
 import { approveSummary, completeBlocker, lockSession, MAX_LOGS, MAX_SESSIONS, noteItems, retakeSession, reviewCycle,
   reviewDateBlocker, reviewTasks, saveLog, saveSession, sourcePages } from './src/study-core.mjs';
+import { buildWikiExport, checkWikiExport } from './src/wiki-export.mjs';
 
 const DB_NAME = 'challenge-master';
 const STORE = 'kv';
@@ -433,6 +434,31 @@ export async function approveStudySummary(sessionId, draftValues) {
     sessions[index] = approveSummary(sessions[index], draftValues, { now });
     return { sessions, value: sessions[index] };
   });
+}
+
+// ---- A-5 개인 Wiki로 내보내기 ----
+
+// What an export would write now, its format check, and how each record compares with the last export.
+export async function wikiExportPreview() {
+  const values = await transact(['study', 'meta'], 'readonly', saved => saved);
+  const now = new Date().toISOString();
+  const { files, entries } = await buildWikiExport({ sessions: sessionsOf(values), logs: logsOf(values), now });
+  const last = values.meta?.wikiExport ?? null;
+  const counts = { new: 0, changed: 0, same: 0 };
+  for (const entry of entries) {
+    const previous = last?.revisions?.[entry.recordId];
+    counts[!previous ? 'new' : previous === entry.revisionSha256 ? 'same' : 'changed'] += 1;
+  }
+  return { files, entries, problems: checkWikiExport(files), counts, lastExport: last };
+}
+
+export async function markWikiExported(entries, method) {
+  const at = new Date().toISOString();
+  await transact(['meta'], 'readwrite', (values, put) => {
+    put('meta', { ...(values.meta ?? {}), wikiExport: { at, method,
+      revisions: Object.fromEntries(entries.map(entry => [entry.recordId, entry.revisionSha256])) } });
+  });
+  notify();
 }
 
 export async function storageInfo() {
