@@ -1,4 +1,5 @@
 // Learning calendar and monthly check (PRD 6.1). Uses the page's api()/run() so busy state and errors stay shared.
+// C: a colour summary beside the plan; the full calendar, day choices and monthly check open in a dialog.
 const STATE_LABELS = {
   before_start: '등록 전',
   recorded: '기록 있음',
@@ -8,6 +9,15 @@ const STATE_LABELS = {
   late: '사후 기록',
   today: '오늘',
   future: '예정',
+};
+
+// The summary's second signal besides colour (a shape per state), matching the legend in index.html.
+const STATE_MARKS = {
+  recorded: '✓',
+  needs_review: '?',
+  missed: '×',
+  late: '↺',
+  rest: '–',
 };
 
 function el(tag, attributes = {}, ...children) {
@@ -70,8 +80,17 @@ export function createCalendar({ api, run, today }) {
     monthStats: document.querySelector('#monthStats'),
     needsReview: document.querySelector('#needsReviewList'),
     signals: document.querySelector('#calendarSignals'),
+    dialog: document.querySelector('#calendarDialog'),
+    close: document.querySelector('#calendarClose'),
+    mini: document.querySelector('#calendarMini'),
+    sideMonth: document.querySelector('#calendarSideMonth'),
+    sidePrev: document.querySelector('#calendarSidePrev'),
+    sideNext: document.querySelector('#calendarSideNext'),
+    sideSummary: document.querySelector('#calendarSideSummary'),
+    open: document.querySelector('#calendarOpen'),
   };
   if (!nodes.grid) return { update() {} };
+  let opener = null;
   let month = today().slice(0, 7);
   let data = null;
   let selected = null;
@@ -84,6 +103,84 @@ export function createCalendar({ api, run, today }) {
     selected = date;
     renderGrid();
     renderDay();
+  }
+
+  // ---- C: summary beside the plan ----
+
+  function renderMini() {
+    nodes.sideMonth.textContent = `${Number(month.slice(0, 4))}년 ${Number(month.slice(5))}월`;
+    const cells = ['일', '월', '화', '수', '목', '금', '토'].map(name => el('div', { class: 'dow', text: name }));
+    const firstWeekday = new Date(`${month}-01T00:00:00`).getDay();
+    for (let index = 0; index < firstWeekday; index += 1) cells.push(el('div', { class: 'mini-day blank', 'aria-hidden': 'true' }));
+    for (const day of data.days) {
+      const classes = ['mini-day', `state-${day.state}`];
+      if (day.makeupMinutes > 0) classes.push('has-makeup');
+      const button = el('button', { type: 'button', class: classes.join(' '), 'data-date': day.date,
+        'aria-label': `${koreanDate(day.date)} ${STATE_LABELS[day.state]}${day.makeupMinutes > 0 ? `, 보완 +${day.makeupMinutes}분` : ''}. 자세히 보기` },
+      el('span', { class: 'n', text: String(dayNumber(day.date)) }),
+      STATE_MARKS[day.state] ? el('span', { class: 'mark', 'aria-hidden': 'true', text: STATE_MARKS[day.state] }) : null,
+      day.makeupMinutes > 0 ? el('span', { class: 'plus', 'aria-hidden': 'true', text: '+' }) : null);
+      button.addEventListener('click', () => {
+        selected = day.date;
+        renderGrid();
+        renderDay();
+        openDialog(button);
+      });
+      cells.push(button);
+    }
+    nodes.mini.replaceChildren(...cells);
+    const summary = data.summary;
+    const parts = [`기록 ${summary.recordedDays}일`, `휴식 ${summary.restDays}일`];
+    if (summary.missedDays > 0) parts.push(`누락 확인 ${summary.missedDays}일`);
+    nodes.sideSummary.replaceChildren(...[
+      summary.needsReviewDays > 0
+        ? el('strong', { class: 'mini-attention', text: `확인할 날 ${summary.needsReviewDays}일` }) : null,
+      el('span', { text: parts.join(' · ') })].filter(Boolean));
+  }
+
+  // ---- C: the dialog (native <dialog>: modal, Esc, focus kept inside) ----
+
+  function openDialog(from) {
+    opener = from ?? document.activeElement;
+    if (nodes.dialog.open) return;
+    nodes.dialog.classList.remove('closing');
+    nodes.dialog.showModal();
+    // Start on the selected day when there is one (the learner came for that day).
+    const target = nodes.grid.querySelector('.day.selected') ?? nodes.close;
+    target.focus();
+  }
+
+  function restoreFocus() {
+    // A redraw replaces the summary buttons; fall back to the same day or the open button.
+    const again = opener?.isConnected ? opener
+      : nodes.mini.querySelector(`[data-date="${opener?.dataset?.date}"]`) ?? nodes.open;
+    again?.focus();
+  }
+
+  function closeDialog() {
+    if (!nodes.dialog.open || nodes.dialog.classList.contains('closing')) return;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      nodes.dialog.classList.remove('closing');
+      nodes.dialog.close();
+      // An error shown in the dialog belongs to that visit; do not greet the next one with it.
+      const error = nodes.dialog.querySelector('#calendarError');
+      if (error) {
+        error.hidden = true;
+        error.textContent = '';
+      }
+      restoreFocus();
+    };
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finish();
+      return;
+    }
+    nodes.dialog.classList.add('closing');
+    nodes.dialog.addEventListener('animationend', finish, { once: true });
+    // If the animation never runs (hidden tab, old browser), close anyway.
+    setTimeout(finish, 220);
   }
 
   function renderGrid() {
@@ -181,7 +278,7 @@ export function createCalendar({ api, run, today }) {
     } else if (day.state === 'late') {
       body.push(choice(1, '사후 기록 더하기', '같은 날 공부한 다른 과업이 있으면 더 적을 수 있습니다.', taskForm(day)));
     } else if (day.state === 'today') {
-      body.push(el('p', { class: 'muted', text: '오늘 공부는 위쪽 「실제 공부 시간 기록」에 적어 주세요.' }));
+      body.push(el('p', { class: 'muted', text: '오늘 공부는 이 창을 닫고 「실제 공부 시간 기록」에 적어 주세요.' }));
     }
     nodes.dayBody.replaceChildren(...body);
   }
@@ -218,6 +315,7 @@ export function createCalendar({ api, run, today }) {
     renderGrid();
     renderDay();
     renderMonth();
+    renderMini();
   }
 
   function go(delta) {
@@ -227,6 +325,21 @@ export function createCalendar({ api, run, today }) {
   }
   nodes.prev.addEventListener('click', () => go(-1));
   nodes.next.addEventListener('click', () => go(1));
+  nodes.sidePrev.addEventListener('click', () => go(-1));
+  nodes.sideNext.addEventListener('click', () => go(1));
+  nodes.open.addEventListener('click', () => openDialog(nodes.open));
+  nodes.close.addEventListener('click', closeDialog);
+  nodes.dialog.addEventListener('cancel', event => {
+    // Esc: close with the same short fade as the close button.
+    event.preventDefault();
+    closeDialog();
+  });
+  nodes.dialog.addEventListener('click', event => {
+    // A click on the dimmed area outside the box (the dialog element itself, not its content).
+    if (event.target === nodes.dialog) closeDialog();
+  });
+  // Another tab of the app must not open over a dialog left open on this one.
+  window.addEventListener('hashchange', closeDialog);
 
   return {
     // Status responses from calendar actions carry the calendar; other actions reload the shown month.

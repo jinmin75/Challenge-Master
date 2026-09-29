@@ -69,14 +69,23 @@ async function api(path, body) {
   return data;
 }
 
+// While the calendar dialog is open the page behind it is covered, so its errors show inside the dialog.
+function errorNode() {
+  return document.querySelector('#calendarDialog')?.open ? document.querySelector('#calendarError') : elements.errorMessage;
+}
+
 function showError(error) {
-  elements.errorMessage.hidden = false;
-  elements.errorMessage.textContent = error.message || '요청을 처리하지 못했습니다.';
+  const node = errorNode();
+  node.hidden = false;
+  node.textContent = error.message || '요청을 처리하지 못했습니다.';
 }
 
 function clearError() {
-  elements.errorMessage.hidden = true;
-  elements.errorMessage.textContent = '';
+  for (const node of [elements.errorMessage, document.querySelector('#calendarError')]) {
+    if (!node) continue;
+    node.hidden = true;
+    node.textContent = '';
+  }
 }
 
 async function run(action) {

@@ -114,6 +114,45 @@ async function checkEngine(name, playwright) {
     await callApi(pageA, '/api/start', { date: offset(0) });
     await pageA.reload({ waitUntil: 'networkidle' });
     await calendarFlow(pageA, { calendarOf: date => callApi(pageA, `/api/calendar?month=${date.slice(0, 7)}`) });
+    // C layout: the summary is the right column on a wide screen and follows the first panel on a phone.
+    const box = selector => pageA.locator(selector).boundingBox();
+    const [primaryWide, sideWide] = [await box('#view-plan .primary'), await box('#calendarSide')];
+    assert.ok(sideWide.x >= primaryWide.x + primaryWide.width, 'summary to the right of the plan');
+    assert.doesNotMatch(await pageA.locator('#calendarSideSummary').textContent(), /null|undefined/);
+    if (shots) await pageA.locator('#calendarSide').screenshot({ path: join(shots, `${name}-cal-side.png`) });
+    // Closing fades out briefly (the close runs after the animation), and opens again cleanly.
+    await pageA.click('#calendarOpen');
+    await pageA.locator('#calendarDialog[open]').waitFor();
+    // Screenshots after the opening animation has finished.
+    await pageA.waitForFunction(() => document.querySelector('#calendarDialog').getAnimations({ subtree: true }).length === 0);
+    if (shots) await pageA.screenshot({ path: join(shots, `${name}-cal-dialog.png`) });
+    assert.deepEqual(await pageA.evaluate(() => {
+      const dialog = document.querySelector('#calendarDialog');
+      document.querySelector('#calendarClose').click();
+      return [dialog.open, dialog.classList.contains('closing')];
+    }), [true, true]);
+    await pageA.waitForFunction(() => !document.querySelector('#calendarDialog').open);
+    // With reduced motion the dialog closes at once.
+    await pageA.emulateMedia({ reducedMotion: 'reduce' });
+    await pageA.click('#calendarOpen');
+    await pageA.locator('#calendarDialog[open]').waitFor();
+    assert.equal(await pageA.evaluate(() => {
+      document.querySelector('#calendarClose').click();
+      return document.querySelector('#calendarDialog').open;
+    }), false);
+    await pageA.emulateMedia({ reducedMotion: 'no-preference' });
+    await pageA.setViewportSize({ width: 390, height: 844 });
+    const [primaryNarrow, sideNarrow] = [await box('#view-plan .primary'), await box('#calendarSide')];
+    assert.ok(sideNarrow.y >= primaryNarrow.y + primaryNarrow.height, 'summary under the first panel on a phone');
+    assert.equal(await pageA.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no sideways scroll');
+    if (shots) await pageA.locator('#calendarSide').screenshot({ path: join(shots, `${name}-cal-side-phone.png`) });
+    await pageA.click('#calendarOpen');
+    await pageA.locator('#calendarDialog[open]').waitFor();
+    // Screenshots after the opening animation has finished.
+    await pageA.waitForFunction(() => document.querySelector('#calendarDialog').getAnimations({ subtree: true }).length === 0);
+    if (shots) await pageA.screenshot({ path: join(shots, `${name}-cal-dialog-phone.png`) });
+    await pageA.keyboard.press('Escape');
+    await pageA.waitForFunction(() => !document.querySelector('#calendarDialog').open);
     assert.deepEqual([watchA.consoleErrors, watchA.failedRequests], [[], []]);
     await contextA.close();
 
