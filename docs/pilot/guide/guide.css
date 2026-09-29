@@ -64,6 +64,8 @@ code, .path {
 figure { margin: 6pt 0 4pt; break-inside: avoid; page-break-inside: avoid; }
 figure img {
   display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 4px;
+  /* A picture taller than a printed page spills onto the next one and covers its text. */
+  max-height: 225mm; width: auto; object-fit: contain;
 }
 figure.half img { max-width: 62%; }
 figure.small img { max-width: 48%; }

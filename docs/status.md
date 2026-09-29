@@ -1,10 +1,11 @@
 # 작업 상태
 
-기준일: `2026-09-28`. 설계 v4.2 / **웹 버전 v0.8.0**(학생 배포) / Windows·macOS 설치판 v0.7.0(예비). 현재 목표는 학생 2~3명 시범 사용이다([D016~D022](decisions.md), [PRD 6.1·9.3절](prd.md)).
+기준일: `2026-09-29`. 설계 v4.2 / **웹 버전 v0.8.0 배포 중, v0.9.0(학습 기능) 가지 `study`에서 검토 대기** / Windows·macOS 설치판 v0.7.0(예비). 현재 목표는 학생 2~3명 시범 사용이다([D016~D023](decisions.md), [PRD 6.1·6.2·9.3절](prd.md)).
 
 | 구분 | 현재 상태 | 근거/다음 확인 |
 |---|---|---|
 | 웹 버전 | `https://jinmin75.github.io/Challenge-Master/`; 기록·추출 글자는 학생 브라우저(IndexedDB)에만, PDF 원본 저장 안 함; 백업 저장·불러오기·지우기; 사이트 밖 요청 0 | [v0.8 검증](verification-v0.8.md); Chrome·WebKit 통과, 실제 Safari·Edge·휴대폰 NOT RUN |
+| 학습 기능 v0.9.0(검토 대기) | 교재 보기, 학습실 4단(내 답 먼저 → 근거 → 원문 대조 → 수정·복습), 오답노트와 복습일 배정, 학습로그·마무리, 개인 Wiki 내보내기(모아 형식), 내 AI 복사-붙여넣기(동의·AI 추정 표시·후보 승인), 캘린더 요약·팝업 | [v0.9 검증](verification-v0.9.md); Chrome·WebKit 2회 통과, 실제 AI 채팅 화면·Safari·휴대폰 NOT RUN, 박사님 화면 검토 뒤 main 합침 |
 | Windows 설치파일(예비) | v0.7.0 NSIS 설치파일, 공유폴더에서 뺌; 앱 전용 Node.js와 pdf.js 포함, Python 없음; 서명 없음 | [v0.7 검증](verification-v0.7.md) |
 | macOS 앱(예비) | `Challenge Master.app` 압축파일; Apple Silicon·Intel 겸용; 서명·공증 없음 | GitHub macOS 환경(arm64·Intel)에서 빌드·자동 시험 통과; 실제 Mac 학생 사용은 NOT RUN |
 | 제거 시 기록 선택 | Windows: 기본 보존, 선택 시 기록 폴더 삭제, 실행 중 제거 거부. Mac: 앱을 휴지통으로 옮기면 기록 보존, 기록 삭제는 폴더를 직접 지움 | Windows 무인 모드 통과; 샌드박스에서 실제 제거 화면 캡처로 문구·기본값 확인 |
@@ -19,7 +20,7 @@
 | 실제 학생 계정 연결 | NOT RUN | 시범 관찰 뒤 공식 지원 경로 한 조합 확인 |
 | 실제 교재·학생 사용성 | NOT RUN | 시범에서 관찰 |
 | 제품 전체 검증 | K01–K25 NOT RUN | 로컬 회귀와 설치본 시험을 제품 전체 검증으로 대체하지 않음 |
-| 코드 검사 | `npm test` 109/109, `npm run check` 45개 JS 모듈 통과 | 전체 린트·타입 검사 아님 |
+| 코드 검사 | `npm test` 138/138, `npm run check` 56개 JS 모듈 통과(가지 `study`) | 전체 린트·타입 검사 아님 |
 
 ## 시범 전에 남은 일
 

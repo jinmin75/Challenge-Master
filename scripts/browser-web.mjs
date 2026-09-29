@@ -203,6 +203,8 @@ async function checkEngine(name, playwright) {
     // A-2 학습실 (docs/moa-lessons.md #1 reasons beside disabled buttons, #2 next step works without a reload).
     await page.click('#appTabs a[href="#study"]');
     await waitText(page, '#studyList', '아직 학습 기록이 없습니다');
+    // No stray "null"/"undefined" text on any view drawn so far (replaceChildren writes null as text).
+    assert.doesNotMatch(await page.locator('#studyWork').innerText(), /null|undefined/);
     const reason = label => text(page, `[data-reason="${label}"]`);
     const action = label => page.locator(`[data-action="${label}"]`);
     const stepField = name => page.locator(`[data-field="${name}"]`);

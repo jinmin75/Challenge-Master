@@ -341,7 +341,7 @@ export const MANUAL_LOG_TYPES = ['CONCEPT', 'INSIGHT', 'CORRECTION', 'SUPPLEMENT
 export const VERIFICATION = {
   source_grounded: '자료 근거 있음',
   user_confirmed: '사용자 확인 완료',
-  llm_inferred: 'LLM 추론',
+  llm_inferred: 'AI 추정', // shown to learners; the stored key stays Moa's llm_inferred
   needs_verification: '추가 검증 필요',
 };
 export const MAX_LOGS = 5000;

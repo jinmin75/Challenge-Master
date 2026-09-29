@@ -566,8 +566,9 @@ export function createStudyView({ api, onChange = async () => {} }) {
       });
       return el('p', { class: 'study-foot' }, remove);
     })() : null;
-    workNode.replaceChildren(header, ...steps, current.id ? logSection() : null, current.id ? summarySection() : null,
-      actions);
+    // replaceChildren() writes null as the text "null"; a new record has no logs, wrap-up or delete link yet.
+    workNode.replaceChildren(...[header, ...steps, current.id ? logSection() : null, current.id ? summarySection() : null,
+      actions].filter(Boolean));
   }
 
   function render() {
