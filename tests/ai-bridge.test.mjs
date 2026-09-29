@@ -82,6 +82,22 @@ test('candidates, cited pages and suggested causes are read from the pasted answ
   assert.equal(parseCauseSuggestion('주된 원인: 모르겠음'), null);
 });
 
+test('candidates are read from drag-copied chat text and tables, not only from markdown', () => {
+  // Chrome, drag-select over a rendered chat answer then copy (measured 2026-09-29): list markers and bold are gone.
+  const dragged = '[현재 자료에 근거한 설명] PDF 41쪽에 따르면 형성평가는 수업 개선이 목적입니다.\r\n\r\n[학습로그 후보]\r\n\r\n'
+    + '핵심 개념 | 형성평가의 목적 | 수업 도중 학습 진전을 확인해 교수·학습을 개선\r\n'
+    + '오개념 수정 | 서열화 오해 | 형성평가는 서열화용이 아니다\r\n확인 필요 | 준거지향 | 준거지향평가 성격인지 교재 확인\r\n'
+    + '주된 원인: 비슷한 개념과 혼동함';
+  assert.deepEqual(parseCandidates(dragged).map(item => [item.type, item.title]),
+    [['CONCEPT', '형성평가의 목적'], ['CORRECTION', '서열화 오해'], ['VERIFY', '준거지향']]);
+  // A rendered table copies as tab-separated cells; a markdown table keeps its outer pipes and separator row.
+  assert.deepEqual(parseCandidates('## 학습로그 후보\n유형\t제목\t내용\n핵심 개념\t형성평가\t수업 중 평가').map(item => item.type), ['CONCEPT']);
+  assert.deepEqual(parseCandidates('[학습로그 후보]\n| 유형 | 제목 | 내용 |\n|---|---|---|\n| **인사이트** | 비교 | 축을 먼저 |\n1. 질문 | 시점 | 언제')
+    .map(item => [item.type, item.content]), [['INSIGHT', '축을 먼저'], ['QUESTION', '언제']]);
+  // Prose after the block is not a candidate even when it has a pipe.
+  assert.deepEqual(parseCandidates('[학습로그 후보]\n참고 | 이 줄은 설명입니다'), []);
+});
+
 test('a pasted answer is a self-reported upload; AI candidates stay pending until approved, and only approved ones reach the summary and the Wiki', async () => {
   let session = locked();
   const review = newAiReview({ id: 'r1', session, provider: 'Claude', purpose: 'review', includedSource: true, consentId: 'c1',

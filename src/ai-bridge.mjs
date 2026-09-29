@@ -127,16 +127,26 @@ const LABEL_TO_TYPE = new Map([
   ['질문', 'QUESTION'],
 ]);
 
+// One candidate line split into fields. Learners paste either the chat's markdown (「- 유형 | 제목 | 내용」, a
+// markdown table row) or text drag-copied from the rendered chat, where the browser drops list markers and bold
+// marks and joins table cells with tabs (measured in Chrome, 2026-09-29).
+function candidateFields(line) {
+  const clean = line.replace(/\*\*|__|`/g, '').replace(/^\s*(?:[-*•·]|\d+[.)])\s*/, '').trim()
+    .replace(/^\|\s*/, '').replace(/\s*\|$/, '');
+  const parts = clean.includes('|') ? clean.split('|') : clean.split('\t');
+  return parts.length >= 2 ? parts.map(part => part.trim()) : null;
+}
+
 // 「[학습로그 후보]」 lines → up to five candidates. Unknown types are skipped rather than guessed.
 export function parseCandidates(text) {
   const lines = String(text ?? '').split(/\r?\n/);
-  const start = lines.findIndex(line => line.includes('[학습로그 후보]'));
+  const start = lines.findIndex(line => /학습로그\s*후보/.test(line));
   if (start < 0) return [];
   const candidates = [];
   for (const line of lines.slice(start + 1)) {
-    const match = /^\s*[-*]\s*(.+)$/.exec(line);
-    if (!match) continue;
-    const [label, title, ...rest] = match[1].split('|').map(part => part.trim());
+    const fields = candidateFields(line);
+    if (!fields) continue;
+    const [label, title, ...rest] = fields;
     const type = LABEL_TO_TYPE.get(label?.replace(/[「」]/g, ''));
     const content = rest.join(' | ').trim() || title;
     if (!type || !content || label === '유형') continue;

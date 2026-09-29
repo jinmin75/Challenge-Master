@@ -118,7 +118,10 @@ async function checkEngine(name, playwright) {
     await contextA.close();
 
     // B. Registration and record keeping in a fresh browser profile.
-    const context = await browser.newContext({ viewport, acceptDownloads: true });
+    // Clipboard read-back for the B copy check: Chrome needs both permissions to write from a script-driven click,
+    // WebKit writes on a click by itself and knows only the read permission.
+    const permissions = name === 'webkit' ? ['clipboard-read'] : ['clipboard-read', 'clipboard-write'];
+    const context = await browser.newContext({ viewport, acceptDownloads: true, permissions });
     const page = await context.newPage();
     const watch = watchPage(page);
     watchOrigin(page);
@@ -244,8 +247,17 @@ async function checkEngine(name, playwright) {
     assert.match(request, /제가 찾은 빠진 것: 학습 개선에 쓴다는 목적/);
     assert.match(request, /교재 원문 \(웹 시험 · PDF 1쪽/);
     await action('요청문 복사').click();
-    // Headless browsers may refuse the clipboard; either way the learner is told what happened.
-    await page.waitForFunction(() => /복사했습니다|자동 복사가 되지 않았습니다/.test(document.querySelector('[data-note="ai"]').textContent));
+    await waitText(page, '[data-note="ai"]', '복사했습니다');
+    // What lands on the clipboard is the whole request, character for character (Windows Chrome writes CRLF).
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    assert.equal(copied.replace(/\r\n/g, '\n'), request);
+    // A refused clipboard (policy, old browser) falls back to telling the learner how to copy by hand.
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = () => Promise.reject(new DOMException('refused', 'NotAllowedError'));
+    });
+    await action('요청문 복사').click();
+    await waitText(page, '[data-note="ai"]', '자동 복사가 되지 않았습니다');
+    assert.equal(await page.locator('[data-note="ai"]').getAttribute('role'), 'alert');
     assert.match(await reason('AI 답 저장'), /잠김: AI의 답을 붙여 넣어 주세요/);
     await page.fill('[data-form-field="ai-response"]', ['[현재 자료에 근거한 설명] PDF 1쪽에 따르면… PDF 7쪽도 보세요.',
       '[학습로그 후보]', '- 핵심 개념 | 형성평가 | 수업 중 학습 개선을 위한 평가', '- 확인 필요 | 출처 | 교재 쪽 확인',
