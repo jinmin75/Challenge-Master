@@ -665,6 +665,109 @@ button.danger:hover {
   margin: 0;
 }
 
+.log-section,
+.summary-section {
+  margin-top: 16px;
+  border-top: 1px solid #ecefe5;
+  padding-top: 12px;
+}
+
+.log-section h4,
+.summary-section h4 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.log-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.log-buttons button {
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.log-form {
+  margin: 8px 0;
+  border: 1px solid #8fb8a7;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fbfefc;
+}
+
+.log-form label {
+  margin: 8px 0;
+}
+
+.log-form-type {
+  margin: 0;
+  font-weight: 700;
+}
+
+.log-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-item {
+  border: 1px solid #ecefe5;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  word-break: keep-all;
+}
+
+.log-chip {
+  border-radius: 4px;
+  padding: 1px 8px;
+  color: #28413e;
+  background: #dbe9e5;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.log-content {
+  margin: 6px 0 2px;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.log-meta {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.log-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.summary-card {
+  margin: 8px 0;
+  border: 1px solid #8fb8a7;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #f1f8f5;
+}
+
+.summary-card .muted {
+  margin: 2px 0 6px;
+  font-size: 0.85rem;
+}
+
 .study-foot {
   margin: 14px 0 0;
   text-align: right;

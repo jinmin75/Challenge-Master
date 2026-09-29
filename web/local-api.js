@@ -6,8 +6,8 @@ import { calendarFor, eventBuilder, isPdfBytes, localDate, parseSetupFields, pla
   statusFor, studentError, studentPdfError, textlessPages, writePaths, writeResponse } from './src/app-core.mjs';
 import { MAX_PDF_BYTES, manifestFromExtraction } from './src/pdf-core.mjs';
 import { readPdfPages } from './src/pdf-read.mjs';
-import { completeBlocker, lockSession, MAX_SESSIONS, noteItems, retakeSession, reviewCycle, reviewDateBlocker, reviewTasks,
-  saveSession, sourcePages } from './src/study-core.mjs';
+import { approveSummary, completeBlocker, lockSession, MAX_LOGS, MAX_SESSIONS, noteItems, retakeSession, reviewCycle,
+  reviewDateBlocker, reviewTasks, saveLog, saveSession, sourcePages } from './src/study-core.mjs';
 
 const DB_NAME = 'challenge-master';
 const STORE = 'kv';
@@ -235,7 +235,9 @@ export async function importBackup(text) {
     replay(backup.events);
     if (backup.setup) planInputFromSetup(backup.setup);
     if (backup.study != null && (!Array.isArray(backup.study.sessions) ||
-        backup.study.sessions.some(item => typeof item?.id !== 'string' || typeof item?.question !== 'string'))) {
+        backup.study.sessions.some(item => typeof item?.id !== 'string' || typeof item?.question !== 'string') ||
+        (backup.study.logs != null && (!Array.isArray(backup.study.logs) ||
+          backup.study.logs.some(log => typeof log?.id !== 'string' || typeof log?.sessionId !== 'string'))))) {
       throw new Error('study records malformed');
     }
   } catch (error) {
@@ -273,11 +275,16 @@ function sessionsOf(values) {
   return values.study?.sessions ?? [];
 }
 
-// Runs change(sessions, values) on the stored sessions in one transaction and stores the returned list.
+function logsOf(values) {
+  return values.study?.logs ?? [];
+}
+
+// Runs change(sessions, values, logs) on the stored study records in one transaction and stores what it returns.
+// Sessions and learning logs share the one 'study' document; a change that returns no logs keeps them as they were.
 async function changeSessions(keys, change) {
   const result = await transact(['study', ...keys], 'readwrite', (values, put) => {
-    const { sessions, value } = change([...sessionsOf(values)], values);
-    put('study', { schemaVersion: 1, sessions });
+    const { sessions, logs, value } = change([...sessionsOf(values)], values, [...logsOf(values)]);
+    put('study', { ...(values.study ?? {}), schemaVersion: 1, sessions, logs: logs ?? logsOf(values) });
     return value;
   });
   notify();
@@ -381,9 +388,50 @@ export async function completeReview(id) {
 }
 
 export async function deleteStudySession(id) {
-  return changeSessions([], sessions => {
+  return changeSessions([], (sessions, _values, logs) => {
     sessions.splice(findSession(sessions, id), 1);
-    return { sessions, value: null };
+    // A record's learning logs go with it.
+    return { sessions, logs: logs.filter(log => log.sessionId !== id), value: null };
+  });
+}
+
+// ---- A-4 학습로그와 마무리 ----
+
+export async function studyLogs(sessionId = null) {
+  const values = await transact(['study'], 'readonly', saved => saved);
+  return logsOf(values).filter(log => !sessionId || log.sessionId === sessionId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function saveStudyLog(input) {
+  const now = new Date().toISOString();
+  return changeSessions([], (sessions, _values, logs) => {
+    const index = input.id ? logs.findIndex(log => log.id === input.id) : -1;
+    if (input.id && index < 0) throw new Error('학습로그를 찾을 수 없습니다. 새로고침해 주세요.');
+    const session = sessions[findSession(sessions, index >= 0 ? logs[index].sessionId : input.sessionId)];
+    if (index < 0 && logs.length >= MAX_LOGS) throw new Error(`학습로그는 ${MAX_LOGS}개까지 저장합니다.`);
+    const saved = saveLog(index >= 0 ? logs[index] : null, input, { id: crypto.randomUUID(), now, session });
+    if (index >= 0) logs[index] = saved;
+    else logs.push(saved);
+    return { sessions, logs, value: saved };
+  });
+}
+
+export async function deleteStudyLog(id) {
+  return changeSessions([], (sessions, _values, logs) => {
+    const index = logs.findIndex(log => log.id === id);
+    if (index < 0) throw new Error('학습로그를 찾을 수 없습니다. 새로고침해 주세요.');
+    logs.splice(index, 1);
+    return { sessions, logs, value: null };
+  });
+}
+
+export async function approveStudySummary(sessionId, draftValues) {
+  const now = new Date().toISOString();
+  return changeSessions([], sessions => {
+    const index = findSession(sessions, sessionId);
+    sessions[index] = approveSummary(sessions[index], draftValues, { now });
+    return { sessions, value: sessions[index] };
   });
 }
 

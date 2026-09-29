@@ -88,6 +88,7 @@ export function sessionTitle(session) {
 
 // Status label for the list, as in Moa: locked → 대조 시작; revised → 수정 중; answered → 초안 저장.
 export function sessionStatus(session) {
+  if (session.summary) return '마무리함';
   if (session.locked && (session.revision.trim() || session.reflection.trim())) return '수정 중';
   if (session.locked) return '대조 시작';
   if (session.firstAnswer.trim()) return '초안 저장';
@@ -148,6 +149,7 @@ export function saveSession(previous, input, { id, now }) {
     nextAction: field('nextAction'),
     reviewMinutes: reviewMinutes(input.reviewMinutes ?? previous?.reviewMinutes ?? REVIEW_MINUTES_DEFAULT),
     reviews: previous?.reviews ?? [],
+    summary: previous?.summary ?? null,
   };
 }
 
@@ -218,6 +220,7 @@ export function retakeSession(session, { id, now }) {
     lockedAt: null,
     missing: '', mistaken: '', unverified: '', revision: '', reflection: '', reviewDate: '',
     mainCause: '', otherCauses: [], nextAction: '', reviewMinutes: session.reviewMinutes ?? REVIEW_MINUTES_DEFAULT, reviews: [],
+    summary: null,
   };
 }
 
@@ -315,4 +318,124 @@ export function completeBlocker(cycle) {
     return '지난 계획에 들어 있던 복습입니다. 「오늘 계획」에서 「남은 과업 다시 배정」을 누른 뒤 기록하세요.';
   }
   return null;
+}
+
+// ---- A-4 학습로그와 마무리 (Moa's learning logs; StudyStore.ps1 types, study.js labels) ----
+
+export const LOG_TYPES = {
+  UNDERSTOOD: { label: '이해한 내용', wikiType: 'summary' },
+  CONCEPT: { label: '핵심 개념', wikiType: 'concept' },
+  INSIGHT: { label: '인사이트', wikiType: 'insight' },
+  SUPPLEMENT: { label: '보충 필요', wikiType: 'supplement' },
+  VERIFY: { label: '확인 필요', wikiType: 'verification' },
+  CORRECTION: { label: '오개념 수정', wikiType: 'misconception' },
+  QUESTION: { label: '미해결 질문', wikiType: 'question' },
+  FOLLOW_UP: { label: '후속 학습', wikiType: 'task' },
+  NOTE: { label: '직접 메모', wikiType: 'reflection' },
+  SUMMARY: { label: '학습 요약', wikiType: 'summary' },
+};
+// Moa's six quick buttons plus 오개념 수정, which carries step 3's 「잘못 알고 있던 것」.
+export const MANUAL_LOG_TYPES = ['CONCEPT', 'INSIGHT', 'CORRECTION', 'SUPPLEMENT', 'VERIFY', 'QUESTION', 'NOTE'];
+export const VERIFICATION = {
+  source_grounded: '자료 근거 있음',
+  user_confirmed: '사용자 확인 완료',
+  llm_inferred: 'LLM 추론',
+  needs_verification: '추가 검증 필요',
+};
+export const MAX_LOGS = 5000;
+
+// The type is shown beside the title (and kept as a field), so the automatic title is the content's opening only.
+export function logTitle(type, content) {
+  const plain = String(content ?? '').replace(/\s+/g, ' ').trim();
+  return plain.slice(0, 48) || (LOG_TYPES[type]?.label ?? '학습 기록');
+}
+
+// What a new log of this type starts with, taken from the session's own fields.
+export function logPrefill(type, session) {
+  if (type === 'CORRECTION') return session.mistaken ?? '';
+  if (type === 'SUPPLEMENT') return session.missing ?? '';
+  if (type === 'QUESTION' || type === 'VERIFY') return session.unverified ?? '';
+  if (type === 'NOTE') return session.reflection ?? '';
+  return '';
+}
+
+// Moa's default: 확인 필요 needs verification; with compared evidence the log is grounded; otherwise the learner confirms.
+export function defaultVerification(type, session) {
+  if (type === 'VERIFY') return 'needs_verification';
+  return session.locked && (session.evidence ?? []).length > 0 ? 'source_grounded' : 'user_confirmed';
+}
+
+export function logBlocker(input) {
+  if (!String(input.content ?? '').trim()) return '내용을 적어 주세요.';
+  return null;
+}
+
+// A learner-written log. The learner writing it is the approval, so it is stored as approved; pending candidates are
+// for AI suggestions (step B) and never reach the Wiki without the learner's decision.
+export function saveLog(previous, input, { id, now, session }) {
+  const blocker = logBlocker(input);
+  if (blocker) throw new Error(blocker);
+  const type = previous?.type ?? input.type;
+  if (!LOG_TYPES[type]) throw new Error('학습로그 유형이 올바르지 않습니다.');
+  const content = String(input.content);
+  if (content.length > 12000) throw new Error('학습로그 내용이 너무 깁니다(12,000자까지).');
+  const title = String(input.title ?? '').trim() || logTitle(type, content);
+  if (title.length > 240) throw new Error('학습로그 제목이 너무 깁니다(240자까지).');
+  const verificationStatus = input.verificationStatus ?? previous?.verificationStatus ?? defaultVerification(type, session);
+  if (!VERIFICATION[verificationStatus]) throw new Error('확인 상태가 올바르지 않습니다.');
+  return {
+    id: previous?.id ?? id,
+    sessionId: previous?.sessionId ?? session.id,
+    type,
+    title,
+    content,
+    sourceLocation: session.studiedSection ?? '',
+    sourcePages: (session.locked ? session.evidence : []).map(ref => ({ sourceTitle: ref.sourceTitle,
+      pdfPageIndex: ref.pdfPageIndex, printedPageLabel: ref.printedPageLabel ?? null })),
+    verificationStatus,
+    status: previous?.status ?? 'approved',
+    origin: previous?.origin ?? 'manual',
+    createdAt: previous?.createdAt ?? now,
+    updatedAt: now,
+  };
+}
+
+// Why the session cannot be wrapped up yet (null when it can).
+export function summaryBlocker(session) {
+  if (!session?.locked) return '3단에서 원문과 대조한 뒤에 마무리합니다.';
+  if (!session.revision.trim()) return '4단에서 수정 답안을 먼저 쓰세요.';
+  return null;
+}
+
+// Moa's 「학습 마무리」 draft: material, goal, question, causes and the session's logs, for the learner to edit.
+export function summaryDraft(session, logs) {
+  const lines = [
+    `학습자료: ${[session.subject, session.studiedSection].filter(Boolean).join(' ') || '적지 않음'}`,
+    `학습목표: ${session.goal || '적지 않음'}`,
+    `문제: ${session.question.replace(/\s+/g, ' ').trim()}`,
+  ];
+  if (session.missing.trim()) lines.push(`처음 답에서 빠진 것: ${session.missing.trim()}`);
+  if (session.mistaken.trim()) lines.push(`잘못 알고 있던 것: ${session.mistaken.trim()}`);
+  if (session.mainCause) {
+    lines.push(`오답 원인: ${[session.mainCause, ...(session.otherCauses ?? [])].join(', ')}`);
+  }
+  const own = logs.filter(log => log.sessionId === session.id && log.status !== 'ignored');
+  if (own.length > 0) lines.push('학습로그:', ...own.map(log => `- ${LOG_TYPES[log.type].label}: ${log.title}`));
+  return { title: `${sessionTitle(session)} 학습 요약`.slice(0, 240), content: lines.join('\n') };
+}
+
+// One summary per session: approving again replaces it (Moa appended a new entry every time; moa-lessons #8).
+export function approveSummary(session, { title, content }, { now }) {
+  const blocker = summaryBlocker(session);
+  if (blocker) throw new Error(blocker);
+  const text = String(content ?? '').trim();
+  if (!text) throw new Error('요약 내용을 적어 주세요.');
+  if (text.length > 12000) throw new Error('요약이 너무 깁니다(12,000자까지).');
+  const heading = String(title ?? '').trim() || `${sessionTitle(session)} 학습 요약`;
+  return {
+    ...session,
+    summary: { title: heading.slice(0, 240), content: text, approvedAt: now,
+      firstApprovedAt: session.summary?.firstApprovedAt ?? session.summary?.approvedAt ?? now },
+    updatedAt: now,
+  };
 }

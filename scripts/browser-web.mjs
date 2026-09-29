@@ -180,13 +180,42 @@ async function checkEngine(name, playwright) {
     await stepField('missing').fill('학습 개선에 쓴다는 목적');
     await action('대조 내용 저장').click();
     await waitText(page, '[data-note="3"]', '저장했습니다');
+    // A-4: wrapping up waits for a revised answer; logs start from step 3's fields and are grounded in the evidence.
+    assert.match(await reason('학습 마무리'), /잠김: 4단에서 수정 답안을 먼저 쓰세요/);
+    await page.click('[data-log-type="SUPPLEMENT"]');
+    assert.equal(await page.inputValue('[data-form-field="log-content"]'), '학습 개선에 쓴다는 목적');
+    await action('로그 저장').click();
+    await waitText(page, '[data-note="log"]', '학습로그를 저장했습니다');
+    await page.click('[data-log-type="CONCEPT"]');
+    assert.match(await reason('로그 저장'), /잠김: 내용을 적어 주세요/);
+    await page.fill('[data-form-field="log-content"]', '형성평가: 수업 중 학습 개선을 위한 평가');
+    assert.equal(await reason('로그 저장'), '');
+    await action('로그 저장').click();
+    await page.waitForFunction(() => document.querySelectorAll('.log-item').length === 2);
+    assert.match(await page.locator('.log-item').first().textContent(), /자료 근거 있음 · 근거 1쪽/);
+    await page.locator('.log-item').first().locator('button', { hasText: '고치기' }).click();
+    await page.fill('[data-form-field="log-title"]', '형성평가의 목적');
+    await action('로그 저장').click();
+    await waitText(page, '.log-list', '형성평가의 목적');
+    await page.locator('.log-item').nth(1).locator('button', { hasText: '지우기' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.log-item').length === 1);
     await page.click('[data-step="4"] .step-toggle');
     await stepField('revision').fill('형성평가는 수업 중 학습을 개선하려고 하는 평가다.');
     await stepField('reviewDate').fill(offset(3));
     await action('저장').click();
     await waitText(page, '[data-note="4"]', '저장했습니다');
+    // Wrap-up: the draft lists the logs; approving twice keeps one summary (moa-lessons #8).
+    await action('학습 마무리').click();
+    assert.match(await page.inputValue('[data-form-field="summary-content"]'), /학습로그:\n- 보충 필요: 형성평가의 목적/);
+    await action('요약 승인').click();
+    await waitText(page, '[data-note="summary"]', '요약을 승인했습니다');
+    await action('다시 마무리').click();
+    await page.fill('[data-form-field="summary-content"]', '형성평가는 학습 개선을 위한 평가다.');
+    await action('요약 승인').click();
+    await waitText(page, '.summary-card', '형성평가는 학습 개선을 위한 평가다.');
+    assert.equal(await page.locator('.summary-card').count(), 1);
     await page.reload({ waitUntil: 'networkidle' });
-    await waitText(page, '#studyList', '수정 중');
+    await waitText(page, '#studyList', '마무리함');
     await waitText(page, '#studyList', `복습일 ${offset(3)}`);
     await page.locator('.session-item').first().click();
     await page.click('[data-step="1"] .step-toggle');
@@ -226,6 +255,8 @@ async function checkEngine(name, playwright) {
     assert.ok(backup.events.some(event => event.type === 'task_progress_recorded' && event.completedMinutes === 5));
     assert.match(backup.draft.draftMarkdown, /한/);
     assert.equal(backup.study.sessions.length, 1, 'study records are in the backup');
+    assert.equal(backup.study.logs.length, 1, 'learning logs are in the backup');
+    assert.equal(backup.study.sessions[0].summary.content, '형성평가는 학습 개선을 위한 평가다.');
     await waitText(page, '#storageStatus', '마지막 백업 파일 저장');
     await page.locator('#backupNotice[hidden]').waitFor({ state: 'attached' });
 
@@ -252,7 +283,7 @@ async function checkEngine(name, playwright) {
     assert.match(await text(page, '#sourceLabel'), /한글-시험\.pdf/, 'restored from the backup file');
     await waitText(page, '#storageStatus', '마지막 백업 파일 저장');
     await page.click('#appTabs a[href="#study"]');
-    await waitText(page, '#studyList', '수정 중');
+    await waitText(page, '#studyList', '마무리함');
     await page.click('#appTabs a[href="#data"]');
     if (shots) await page.locator('#dataPanel').screenshot({ path: join(shots, `${name}-data.png`) });
 

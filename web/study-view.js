@@ -1,8 +1,9 @@
 // 학습실 (D023 A-2): Moa's four steps without AI — question and first answer → evidence pages → compare with the
 // original → revised answer and review date. Checked against docs/moa-lessons.md:
 // #1 every disabled button shows why, next to it; #2 every action redraws the whole view from stored records.
-import { CAUSES, lockBlocker, MAX_EVIDENCE, REVIEW_MINUTES_DEFAULT, saveBlocker, searchPages, sessionStatus,
-  sessionTitle } from './src/study-core.mjs';
+import { CAUSES, defaultVerification, LOG_TYPES, lockBlocker, logBlocker, logPrefill, MANUAL_LOG_TYPES, MAX_EVIDENCE,
+  REVIEW_MINUTES_DEFAULT, saveBlocker, searchPages, sessionStatus, sessionTitle, summaryBlocker, summaryDraft,
+  VERIFICATION } from './src/study-core.mjs';
 
 const STEPS = [
   { n: 1, name: '문제와 첫 답안' },
@@ -56,6 +57,9 @@ export function createStudyView({ api, onChange = async () => {} }) {
   let shownEvidence = 0;
   let review = { cycle: null, dateBlocker: null };
   let pendingOpen = null;
+  let logs = [];
+  let logForm = null;
+  let summaryForm = null;
   const notes = {};
 
   function field(name) {
@@ -105,18 +109,22 @@ export function createStudyView({ api, onChange = async () => {} }) {
     shownEvidence = 0;
     evidenceFocus = null;
     review = { cycle: null, dateBlocker: null };
+    logs = [];
+    logForm = null;
+    summaryForm = null;
     for (const key of Object.keys(notes)) delete notes[key];
   }
 
   function select(session, step = 1) {
     setCurrent(session, step);
     render();
-    // The review-date lock depends on the plan; load it, then draw again with it.
+    // The review-date lock and the learning logs are loaded separately; draw again once they arrive.
     if (current.id) {
       const id = current.id;
-      api.reviewInfo(id).then(info => {
+      Promise.all([api.reviewInfo(id), api.studyLogs(id)]).then(([info, loaded]) => {
         if (current.id !== id) return;
         review = info;
+        logs = loaded;
         rerender();
       }).catch(() => {});
     }
@@ -401,7 +409,8 @@ export function createStudyView({ api, onChange = async () => {} }) {
       });
       return el('p', { class: 'study-foot' }, remove);
     })() : null;
-    workNode.replaceChildren(header, ...steps, actions);
+    workNode.replaceChildren(header, ...steps, current.id ? logSection() : null, current.id ? summarySection() : null,
+      actions);
   }
 
   function render() {
@@ -413,7 +422,155 @@ export function createStudyView({ api, onChange = async () => {} }) {
   // values are taken from the form first so they survive the redraw.
   function rerender() {
     Object.assign(current, pick(draft()));
+    captureForms();
     render();
+  }
+
+  function captureForms() {
+    const value = name => workNode.querySelector(`[data-form-field="${name}"]`)?.value;
+    if (logForm) {
+      for (const name of ['title', 'content', 'verificationStatus']) logForm[name] = value(`log-${name}`) ?? logForm[name];
+    }
+    if (summaryForm) {
+      for (const name of ['title', 'content']) summaryForm[name] = value(`summary-${name}`) ?? summaryForm[name];
+    }
+  }
+
+  // ---- A-4 학습로그와 마무리 ----
+
+  function formInput(name, label, value, { multiline = false, rows = 3, onInput } = {}) {
+    const control = multiline
+      ? el('textarea', { 'data-form-field': name, rows: String(rows) })
+      : el('input', { 'data-form-field': name, type: 'text' });
+    control.value = value ?? '';
+    if (onInput) control.addEventListener('input', onInput);
+    return el('label', {}, label, control);
+  }
+
+  // A button with the reason it is disabled, for actions that only open a form (no stored change).
+  function localButton(label, blocker, onClick, kind = '') {
+    const button = el('button', { type: 'button', class: kind, 'data-action': label, disabled: Boolean(blocker) });
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    return el('div', { class: 'guarded' }, button,
+      el('span', { class: 'blocked-reason', 'data-reason': label, text: blocker ? `잠김: ${blocker}` : '' }));
+  }
+
+  function pageList(pages) {
+    return pages.map(page => `${page.pdfPageIndex}쪽${page.printedPageLabel ? `(인쇄 ${page.printedPageLabel})` : ''}`).join(', ');
+  }
+
+  function logFormNode() {
+    const verification = el('select', { 'data-form-field': 'log-verificationStatus' },
+      ...Object.entries(VERIFICATION).filter(([key]) => key !== 'llm_inferred')
+        .map(([key, label]) => el('option', { value: key, text: label })));
+    verification.value = logForm.verificationStatus;
+    const save = guardedButton({ label: '로그 저장', step: 'log', blocker: () => logBlocker({ content:
+      workNode.querySelector('[data-form-field="log-content"]')?.value ?? logForm.content }), onClick: async () => {
+      captureForms();
+      await api.saveStudyLog({ id: logForm.id, sessionId: current.id, type: logForm.type, title: logForm.title,
+        content: logForm.content, verificationStatus: logForm.verificationStatus });
+      logForm = null;
+      note('log', '학습로그를 저장했습니다.');
+    } });
+    const cancel = el('button', { type: 'button', class: 'link-button', text: '취소' });
+    cancel.addEventListener('click', () => {
+      logForm = null;
+      rerender();
+    });
+    return el('div', { class: 'log-form' },
+      el('p', { class: 'log-form-type', text: `${logForm.id ? '로그 고치기' : '새 로그'} · ${LOG_TYPES[logForm.type].label}` }),
+      formInput('log-title', '제목(비우면 내용 앞부분으로 만듭니다)', logForm.title),
+      formInput('log-content', '내용', logForm.content, { multiline: true, rows: 4, onInput: refreshBlockers }),
+      el('label', {}, '확인 상태', verification),
+      el('div', { class: 'actions' }, save, cancel));
+  }
+
+  function logItem(log) {
+    const edit = el('button', { type: 'button', class: 'link-button', text: '고치기' });
+    edit.addEventListener('click', () => {
+      captureForms();
+      logForm = { id: log.id, type: log.type, title: log.title, content: log.content, verificationStatus: log.verificationStatus };
+      rerender();
+    });
+    const remove = el('button', { type: 'button', class: 'link-button danger-link', text: '지우기' });
+    remove.addEventListener('click', () => {
+      if (!window.confirm('이 학습로그를 지웁니다. 지울까요?')) return;
+      act('log', remove, async () => {
+        await api.deleteStudyLog(log.id);
+        note('log', '학습로그를 지웠습니다.');
+      });
+    });
+    return el('li', { class: 'log-item', 'data-log-id': log.id },
+      el('div', { class: 'log-head' }, el('span', { class: 'log-chip', text: LOG_TYPES[log.type].label }),
+        el('strong', { text: log.title })),
+      // A short log's automatic title is its whole content; show it once.
+      log.content.replace(/\s+/g, ' ').trim() === log.title ? null : el('p', { class: 'log-content', text: log.content }),
+      el('p', { class: 'muted log-meta', text: [VERIFICATION[log.verificationStatus],
+        log.sourcePages.length > 0 ? `근거 ${pageList(log.sourcePages)}` : null].filter(Boolean).join(' · ') }),
+      el('div', { class: 'log-actions' }, edit, remove));
+  }
+
+  function logSection() {
+    const buttons = el('div', { class: 'log-buttons', 'aria-label': '학습로그 유형' }, ...MANUAL_LOG_TYPES.map(type => {
+      const button = el('button', { type: 'button', class: 'secondary', 'data-log-type': type, text: LOG_TYPES[type].label });
+      button.addEventListener('click', () => {
+        captureForms();
+        logForm = { id: null, type, title: '', content: logPrefill(type, current),
+          verificationStatus: defaultVerification(type, current) };
+        rerender();
+        workNode.querySelector('[data-form-field="log-content"]')?.focus();
+      });
+      return button;
+    }));
+    return el('section', { class: 'log-section' },
+      el('h4', { text: `학습로그 (${logs.length})` }),
+      el('p', { class: 'muted', text: '공부하면서 남길 내용을 유형별로 적습니다. 「오개념 수정」·「보충 필요」·「미해결 질문」·「확인 필요」·「직접 메모」는 3·4단에서 적은 내용으로 시작합니다. 적은 로그는 나중에 개인 Wiki로 내보낼 수 있습니다.' }),
+      buttons,
+      logForm ? logFormNode() : null,
+      logs.length > 0 ? el('ul', { class: 'log-list' }, ...logs.map(logItem)) : null,
+      stepNote('log'));
+  }
+
+  function summarySection() {
+    const parts = [el('h4', { text: '학습 마무리' })];
+    if (summaryForm) {
+      const approve = guardedButton({ label: '요약 승인', step: 'summary', blocker: () => (
+        (workNode.querySelector('[data-form-field="summary-content"]')?.value ?? summaryForm.content).trim()
+          ? null : '요약 내용을 적어 주세요.'), onClick: async () => {
+        captureForms();
+        await api.approveStudySummary(current.id, { title: summaryForm.title, content: summaryForm.content });
+        summaryForm = null;
+        note('summary', '요약을 승인했습니다. 이 기록의 요약은 하나이며, 다시 마무리하면 이 요약을 고칩니다.');
+      } });
+      const cancel = el('button', { type: 'button', class: 'link-button', text: '취소' });
+      cancel.addEventListener('click', () => {
+        summaryForm = null;
+        rerender();
+      });
+      parts.push(el('p', { class: 'muted', text: '오늘 공부를 한 번에 볼 수 있게 정리합니다. 내용을 고친 뒤 승인하세요.' }),
+        formInput('summary-title', '제목', summaryForm.title),
+        formInput('summary-content', '요약', summaryForm.content, { multiline: true, rows: 8, onInput: refreshBlockers }),
+        el('div', { class: 'actions' }, approve, cancel));
+    } else if (current.summary) {
+      parts.push(el('div', { class: 'summary-card' },
+        el('strong', { text: current.summary.title }),
+        el('p', { class: 'muted', text: `승인 ${current.summary.approvedAt.slice(0, 10)}` }),
+        el('p', { class: 'log-content', text: current.summary.content })),
+      localButton('다시 마무리', null, () => {
+        captureForms();
+        summaryForm = { title: current.summary.title, content: current.summary.content };
+        rerender();
+      }, 'secondary'));
+    } else {
+      parts.push(localButton('학습 마무리', summaryBlocker(current), () => {
+        captureForms();
+        summaryForm = summaryDraft(current, logs);
+        rerender();
+      }));
+    }
+    parts.push(stepNote('summary'));
+    return el('section', { class: 'summary-section' }, ...parts);
   }
 
   // Reloads records and redraws everything (moa-lessons #2); keeps unsaved form values.
@@ -430,7 +587,9 @@ export function createStudyView({ api, onChange = async () => {} }) {
       }
       pendingOpen = null;
     }
-    review = current.id ? await api.reviewInfo(current.id) : { cycle: null, dateBlocker: null };
+    [review, logs] = current.id
+      ? await Promise.all([api.reviewInfo(current.id), api.studyLogs(current.id)])
+      : [{ cycle: null, dateBlocker: null }, []];
     if (current.id) {
       const stored = sessions.find(item => item.id === current.id);
       current = stored ? { ...structuredClone(stored), ...(keep ? pick(keep) : {}) } : emptySession();
